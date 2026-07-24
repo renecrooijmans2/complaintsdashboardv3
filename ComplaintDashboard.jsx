@@ -40,6 +40,7 @@ var REPORT_API_PATH = "/api/report";
 var PRODUCT_LOOKUP_PATH = "/api/product-lookup";
 var NOTION_QC_PATH = "/api/notion-qc";
 var SIZECHART_API_PATH = "/api/sizechart";
+var FEEDBACK_API_PATH = "/api/feedback";
 var NOTION_ADS_PATH = "/api/notion-ads";
 var IMAGE_PROMPTS_PATH = "/api/image-prompts";
 var ACTIONS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTebDK0L1zu6vE8T7NGW6352-RzjHc4DHGfWH7YjADDGn0Z9J18K6GvlpmHCX6-EpjgZ8KjTD0J20Df/pub?gid=1657576006&single=true&output=csv";
@@ -54,7 +55,19 @@ var COMPLAINT_DETAIL_CSV_URL = "";
 // Google Apps Script Web App URL — enables logging Actions / Stopped Advertising
 // straight into the Google Sheet from the dashboard (with undo).
 // Setup: see apps-script/Code.gs + README. Leave "" to hide the buttons.
-var APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyPf4MYQO4r4NB9yCAa1S7zrMGCcvMCrCuEJGwJfZScPfmGCgKfahIW2ugh9MqDhr0/exec";
+var APPS_SCRIPT_URL = "";
+
+/* Custom analysis rules (owner feedback) — stored locally, injected into every /api/ai call. */
+function getCustomRules() {
+  try { return JSON.parse(window.localStorage.getItem("ai-custom-rules") || "[]"); } catch (e) { return []; }
+}
+function saveCustomRules(rules) {
+  try { window.localStorage.setItem("ai-custom-rules", JSON.stringify(rules)); } catch (e) { /* no-op */ }
+}
+function rulesHash(rules) { return rules.length + "x" + rules.join("|").length; }
+function makeAIKey(storeName, rowKey, d) {
+  return "ai9-" + storeName + "-" + rowKey + "-" + d.totalComplaints + "-" + (d.sinceWeek || 0) + "-" + rulesHash(getCustomRules());
+}
 
 /* ── THEME ── */
 var N = {
@@ -795,7 +808,7 @@ function AIPanel(props) {
       document.body.appendChild(a); a.click(); a.remove();
     }).catch(function (e) { setChartBusy(false); setChartErr(String(e.message || e)); });
   }
-  var cacheKey = d ? "ai9-" + props.storeName + "-" + props.rowKey + "-" + d.totalComplaints + "-" + (d.sinceWeek || 0) : null;
+  var cacheKey = d ? makeAIKey(props.storeName, props.rowKey, d) : null;
 
   function run(force) {
     if (!d || !props.ready) return;
@@ -809,7 +822,7 @@ function AIPanel(props) {
     fetch(AI_API_PATH, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(Object.assign({}, d, { visuals: props.visuals || null })),
+      body: JSON.stringify(Object.assign({}, d, { visuals: props.visuals || null, customRules: getCustomRules() })),
     }).then(function (r) {
       if (!r.ok) throw new Error("API " + r.status);
       return r.json();
@@ -876,12 +889,6 @@ function AIPanel(props) {
                     <input type="file" accept="image/*" style={{ display: "none" }}
                       onChange={function (e) { if (e.target.files && e.target.files[0]) { chartFromScreenshot(e.target.files[0]); e.target.value = ""; } }} />
                   </label>
-                  {effUrl && (
-                    <button disabled={chartBusy} onClick={makeChartHtml}
-                      style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>
-                      Chart from page
-                    </button>
-                  )}
                   <button disabled={packBusy || !effUrl} onClick={makeImagePack} title={effUrl ? "" : "Paste the product URL below first"}
                     style={{ background: "transparent", border: "1px solid " + N.border, color: effUrl ? N.textS : N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 3, cursor: effUrl ? "pointer" : "not-allowed", fontFamily: "inherit" }}>
                     {packBusy ? "Building\u2026" : "Image edit pack (zip)"}
@@ -1277,6 +1284,39 @@ function FloatingWidgets(props) {
   var stIn = useState(""); var input = stIn[0]; var setInput = stIn[1];
   var stBusy = useState(false); var busy = stBusy[0]; var setBusy = stBusy[1];
   var stRep = useState({ loading: false, text: "", error: "" }); var rep = stRep[0]; var setRep = stRep[1];
+  var stFb = useState([]); var fbMsgs = stFb[0]; var setFbMsgs = stFb[1];
+  var stFbIn = useState(""); var fbInput = stFbIn[0]; var setFbInput = stFbIn[1];
+  var stFbBusy = useState(false); var fbBusy = stFbBusy[0]; var setFbBusy = stFbBusy[1];
+  var stFbRule = useState(null); var proposedRule = stFbRule[0]; var setProposedRule = stFbRule[1];
+  var stRules = useState(getCustomRules); var rules = stRules[0]; var setRules = stRules[1];
+
+  function sendFeedback() {
+    var q = fbInput.trim();
+    if (!q || fbBusy) return;
+    var next = fbMsgs.concat([{ role: "user", content: q }]);
+    setFbMsgs(next); setFbInput(""); setFbBusy(true); setProposedRule(null);
+    fetch(FEEDBACK_API_PATH, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: next.slice(-16), rules: rules }),
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      setFbBusy(false);
+      setFbMsgs(next.concat([{ role: "assistant", content: j.reply || j.error || "No response" }]));
+      if (j.proposedRule) setProposedRule(j.proposedRule);
+    }).catch(function (e) {
+      setFbBusy(false);
+      setFbMsgs(next.concat([{ role: "assistant", content: "Unavailable (" + String(e.message || e) + "). Works on the deployed Vercel site." }]));
+    });
+  }
+  function addRule(r) {
+    var next = rules.concat([r]);
+    setRules(next); saveCustomRules(next); setProposedRule(null);
+  }
+  function removeRule(i) {
+    var next = rules.slice(); next.splice(i, 1);
+    setRules(next); saveCustomRules(next);
+  }
+
   var stNotes = useState(function () {
     try { return window.localStorage.getItem("rene-report-notes") || ""; } catch (e) { return ""; }
   });
@@ -1331,6 +1371,7 @@ function FloatingWidgets(props) {
         <button onClick={function () { setOpen(open === "notes" ? null : "notes"); }} style={fabStyle(open === "notes")}>
           Notes{notes.trim() ? " \u2022" : ""}
         </button>
+        <button onClick={function () { setOpen(open === "feedback" ? null : "feedback"); }} style={fabStyle(open === "feedback")}>Analysis feedback</button>
       </div>
 
       {open === "chat" && (
@@ -1364,6 +1405,63 @@ function FloatingWidgets(props) {
               onKeyDown={function (e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
               style={{ flex: 1, background: N.bg, border: "1px solid " + N.border, borderRadius: 5, color: N.text, fontSize: 11, fontFamily: "inherit", padding: "7px 9px", outline: "none", resize: "none" }} />
             <button onClick={send} disabled={busy} style={{ background: "rgba(255,255,255,0.1)", border: "1px solid " + N.border, color: N.text, fontSize: 11, fontWeight: 600, padding: "0 14px", borderRadius: 5, cursor: "pointer", fontFamily: "inherit" }}>Send</button>
+          </div>
+        </div>
+      )}
+
+      {open === "feedback" && (
+        <div style={panelBase}>
+          <div style={{ padding: "10px 14px", borderBottom: "1px solid " + N.border }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: N.text }}>Provide feedback on the analysis</div>
+            <div style={{ fontSize: 9, color: N.textT, marginTop: 2 }}>Push back in plain language. Settled feedback becomes a rule that steers every future analysis.</div>
+          </div>
+          {rules.length > 0 && (
+            <div style={{ padding: "8px 14px", borderBottom: "1px solid " + N.border, maxHeight: 120, overflowY: "auto" }}>
+              <div style={{ fontSize: 9, fontWeight: 700, color: N.textT, marginBottom: 4 }}>Active rules ({rules.length})</div>
+              {rules.map(function (r, i) {
+                return (
+                  <div key={i} style={{ display: "flex", gap: 8, alignItems: "baseline", fontSize: 10, color: N.textS, padding: "2px 0" }}>
+                    <span style={{ flex: 1 }}>{r}</span>
+                    <button onClick={function () { removeRule(i); }} title="Remove rule"
+                      style={{ background: "transparent", border: "none", color: N.textT, fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>{"\u00D7"}</button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <div style={{ flex: 1, overflowY: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 8, minHeight: 140 }}>
+            {fbMsgs.length === 0 && (
+              <div style={{ fontSize: 10.5, color: N.textT, lineHeight: 1.5 }}>
+                Example: {"\u201C"}When both sizing directions are low, stop suggesting chart changes at all.{"\u201D"}
+              </div>
+            )}
+            {fbMsgs.map(function (m, i) {
+              return (
+                <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "88%", background: m.role === "user" ? "rgba(82,156,202,0.15)" : N.bg, border: "1px solid " + N.border, borderRadius: 6, padding: "7px 10px", fontSize: 11, color: N.text, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
+                  {m.content}
+                </div>
+              );
+            })}
+            {fbBusy && <div style={{ fontSize: 10, color: N.textT }}>Thinking{"\u2026"}</div>}
+            {proposedRule && (
+              <div style={{ background: "rgba(52,211,153,0.08)", border: "1px solid rgba(52,211,153,0.35)", borderRadius: 6, padding: "8px 10px" }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: N.green, marginBottom: 3 }}>Proposed rule</div>
+                <div style={{ fontSize: 11, color: N.text, lineHeight: 1.5, marginBottom: 6 }}>{proposedRule}</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={function () { addRule(proposedRule); }}
+                    style={{ background: "rgba(52,211,153,0.16)", border: "1px solid rgba(52,211,153,0.45)", color: N.green, fontSize: 10, fontWeight: 700, padding: "3px 12px", borderRadius: 4, cursor: "pointer", fontFamily: "inherit" }}>Add rule</button>
+                  <button onClick={function () { setProposedRule(null); }}
+                    style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 10, padding: "3px 12px", borderRadius: 4, cursor: "pointer", fontFamily: "inherit" }}>Dismiss</button>
+                </div>
+              </div>
+            )}
+          </div>
+          <div style={{ padding: 10, borderTop: "1px solid " + N.border, display: "flex", gap: 8 }}>
+            <textarea value={fbInput} rows={2} placeholder="Your pushback on an analysis (Enter to send)"
+              onChange={function (e) { setFbInput(e.target.value); }}
+              onKeyDown={function (e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendFeedback(); } }}
+              style={{ flex: 1, background: N.bg, border: "1px solid " + N.border, borderRadius: 5, color: N.text, fontSize: 11, fontFamily: "inherit", padding: "7px 9px", outline: "none", resize: "none" }} />
+            <button onClick={sendFeedback} disabled={fbBusy} style={{ background: "rgba(255,255,255,0.1)", border: "1px solid " + N.border, color: N.text, fontSize: 11, fontWeight: 600, padding: "0 14px", borderRadius: 5, cursor: "pointer", fontFamily: "inherit" }}>Send</button>
           </div>
         </div>
       )}
@@ -1462,7 +1560,15 @@ export default function ComplaintDashboard() {
       saveCheckedProducts(next);
       if (checking) {
         var allDone = heatmapData.length > 0 && heatmapData.every(function (r) { return !!nextProducts[r.key]; });
+        var checkedCount = heatmapData.filter(function (r) { return !!nextProducts[r.key]; }).length;
         setTimeout(function () {
+          if (!allDone && checkedCount > 0 && checkedCount % 10 === 0) {
+            confetti({ particleCount: 90, spread: 90, origin: { y: 0.7 } });
+            confetti({ particleCount: 30, angle: 60, spread: 55, origin: { x: 0, y: 0.8 } });
+            confetti({ particleCount: 30, angle: 120, spread: 55, origin: { x: 1, y: 0.8 } });
+            showToast(checkedCount + " reviewed! Keep going \u2014 future customers thank you.", 3200);
+            return;
+          }
           if (allDone) {
             // Confetti cannon — the whole list is reviewed
             var end = Date.now() + 1200;
@@ -1835,25 +1941,24 @@ export default function ComplaintDashboard() {
   }, [allComplaints, focusedProduct]);
 
   // Payload for the AI analysis: ALL feedback since the latest edit (or all data if never edited).
-  var focusAI = useMemo(function () {
-    if (!focusedProduct) return null;
-    var frow = heatmapData.find(function (r) { return r.key === focusedProduct; });
+  function buildAIPayload(aiKey) {
+    var frow = heatmapData.find(function (r) { return r.key === aiKey; });
     if (!frow) return null;
-    var acts = actionsByProduct[focusedProduct] || [];
+    var acts = actionsByProduct[aiKey] || [];
     var sinceWeek = null;
     var lastAction = null;
     acts.forEach(function (a) {
       if (a.week != null && (sinceWeek == null || a.week > sinceWeek)) { sinceWeek = a.week; lastAction = a; }
     });
     var rows = allComplaints.filter(function (c) {
-      return c.key === focusedProduct && !c.detailOnly && (sinceWeek == null || (c.week || 0) >= sinceWeek);
+      return c.key === aiKey && !c.detailOnly && (sinceWeek == null || (c.week || 0) >= sinceWeek);
     });
     var counts = {};
     rows.forEach(function (c) { counts[c.type] = (counts[c.type] || 0) + 1; });
     var texts = rows.filter(function (c) { return c.summary; });
     texts.sort(function (a, b) { return (b.week || 0) - (a.week || 0); });
-    var wk = ordersByKey[focusedProduct] ? ordersByKey[focusedProduct].weekOrders : {};
-    var cWeeks = allComplaints.filter(function (c) { return c.key === focusedProduct && !c.detailOnly && c.week != null; }).map(function (c) { return c.week; });
+    var wk = ordersByKey[aiKey] ? ordersByKey[aiKey].weekOrders : {};
+    var cWeeks = allComplaints.filter(function (c) { return c.key === aiKey && !c.detailOnly && c.week != null; }).map(function (c) { return c.week; });
     var latestCW = cWeeks.length > 0 ? Math.max.apply(null, cWeeks) : null;
     var ordersLagged = function (startW, endW) {
       var t = 0;
@@ -1867,7 +1972,7 @@ export default function ComplaintDashboard() {
     var catStats = CATEGORIES.map(function (cat) {
       var recC = 0, priC = 0;
       allComplaints.forEach(function (c) {
-        if (c.key !== focusedProduct || c.detailOnly || c.type !== cat.key || c.week == null) return;
+        if (c.key !== aiKey || c.detailOnly || c.type !== cat.key || c.week == null) return;
         if (latestCW != null && c.week >= latestCW - 1) recC++; else priC++;
       });
       var z = zones[cat.key] || { amber: [6], red: [8] };
@@ -1904,20 +2009,23 @@ export default function ComplaintDashboard() {
         recentTrend: latestCW != null ? "complaint weeks W" + (latestCW - 1) + "\u2013W" + latestCW + " over " + recO + " lag-corrected orders" : "n/a",
       },
       ordersRamp: { last2wOrders: recent2O, prev2wOrders: prev2O, justScaled: !!frow.scaleRisk || (recent2O >= 10 && recent2O >= 1.8 * Math.max(prev2O, 1)), firstScaleWeek: frow.firstScaleWeek },
-      product: titleByKey[focusedProduct] || focusedProduct,
+      product: titleByKey[aiKey] || aiKey,
       sinceWeek: sinceWeek,
       lastAction: lastAction ? {
         week: lastAction.week, category: lastAction.category, action: lastAction.action,
         beforePct: lastAction.beforePct, afterPct: lastAction.afterPct, deltaPP: lastAction.deltaPP,
         beforeOrders: lastAction.beforeOrders, afterOrders: lastAction.afterOrders,
       } : null,
-      refundRate: contribData[focusedProduct] && contribData[focusedProduct].refundRate != null ? contribData[focusedProduct].refundRate : null,
+      refundRate: contribData[aiKey] && contribData[aiKey].refundRate != null ? contribData[aiKey].refundRate : null,
       counts: counts,
       totalComplaints: rows.length,
       withText: texts.length,
       orders: frow.orders,
       summaries: texts.slice(0, 40).map(function (c) { return { type: c.type, week: c.week, text: c.summary }; }),
     };
+  }
+  var focusAI = useMemo(function () {
+    return focusedProduct ? buildAIPayload(focusedProduct) : null;
   }, [focusedProduct, heatmapData, allComplaints, actionsByProduct, ordersByKey, titleByKey, zones, latestDataWeek, ordersWR, contribData]);
   // Data payloads for the floating widgets
   var reportData = useMemo(function () {
@@ -2053,6 +2161,7 @@ export default function ComplaintDashboard() {
   var lastRowRef = useRef(null);
   var closeRef = useRef(null);
   var stToast = useState(null); var toast = stToast[0]; var setToast = stToast[1];
+  var stRun = useState({ running: false, done: 0, total: 0 }); var runState = stRun[0]; var setRunState = stRun[1];
   var toastTimer = useRef(null);
   function showToast(text, ms) {
     setToast(text);
@@ -2105,6 +2214,41 @@ export default function ComplaintDashboard() {
     setTimeout(function () { setFocusedProduct(null); setClosing(false); }, 320);
   }
   closeRef.current = closeFocus;
+
+  async function runAllRecommendations() {
+    if (runState.running) return;
+    var rows = heatmapData;
+    if (rows.length === 0) return;
+    if (!window.confirm("Run the AI analysis for all " + rows.length + " visible products in the background?\n\nThis calls the Claude API once per product (a few cents each) and can take a couple of minutes. Already-analyzed products are skipped.")) return;
+    setRunState({ running: true, done: 0, total: rows.length });
+    var rules = getCustomRules();
+    var done = 0;
+    var chunk = 3;
+    for (var i = 0; i < rows.length; i += chunk) {
+      var batch = rows.slice(i, i + chunk).map(function (r) {
+        return (async function () {
+          try {
+            var d = buildAIPayload(r.key);
+            if (!d || d.totalComplaints === 0) return;
+            var k = makeAIKey(STORE_CSVS[selectedStore].name, r.key, d);
+            if (window.localStorage.getItem(k)) return;
+            var resp = await fetch(AI_API_PATH, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(Object.assign({}, d, { customRules: rules })),
+            });
+            var j = await resp.json();
+            if (resp.ok && !j.error) window.localStorage.setItem(k, JSON.stringify(j));
+          } catch (e) { /* keep going */ }
+        })();
+      });
+      await Promise.all(batch);
+      done = Math.min(rows.length, i + chunk);
+      setRunState({ running: true, done: done, total: rows.length });
+    }
+    setRunState({ running: false, done: rows.length, total: rows.length });
+    showToast("All recommendations ready \u2014 open any product and the analysis is instant.", 3600);
+  }
   var dimUI = focusedProduct
     ? { filter: "blur(2.5px) brightness(0.45)", opacity: 0.55, pointerEvents: "none", userSelect: "none", transition: "filter 0.2s, opacity 0.2s" }
     : { transition: "filter 0.2s, opacity 0.2s" };
@@ -2142,6 +2286,10 @@ export default function ComplaintDashboard() {
         </div>
 
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <button onClick={runAllRecommendations} disabled={runState.running}
+            style={{ background: runState.running ? "rgba(52,211,153,0.12)" : "rgba(52,211,153,0.16)", border: "1px solid rgba(52,211,153,0.45)", color: N.green, fontSize: 11, fontWeight: 700, padding: "6px 14px", borderRadius: 5, cursor: runState.running ? "default" : "pointer", fontFamily: "inherit" }}>
+            {runState.running ? "Running " + runState.done + "/" + runState.total + "\u2026" : "Run all recommendations"}
+          </button>
           {/* Week range */}
           <div style={{ display: "flex", alignItems: "center", gap: 4, background: N.bgC, borderRadius: 4, padding: "4px 10px", border: "1px solid " + N.border }}>
             <span style={{ fontSize: 9, color: N.textT }}>W</span>
@@ -2196,7 +2344,7 @@ export default function ComplaintDashboard() {
 
       {/* Amber's weekly workflow */}
       <div style={Object.assign({ background: N.bgC, border: "1px solid " + N.border, borderRadius: 6, padding: "10px 14px", display: "flex", flexDirection: "column", gap: 4 }, dimUI)}>
-        <div style={{ fontSize: 10, fontWeight: 700, color: N.text, marginBottom: 2 }}>Weekly review {"\u2014"} every product, once a week. Fix it or kill it.</div>
+        <div style={{ fontSize: 10, fontWeight: 700, color: N.text, marginBottom: 2 }}>Weekly review {"\u2014"} every product, once a week.</div>
         <div style={{ fontSize: 10, color: N.textS }}><span style={{ color: N.textT, fontWeight: 700 }}>1.</span> Work top to bottom: most orders first (default view). Open each product, read the AI analysis, act.</div>
         <div style={{ fontSize: 10, color: N.textS }}><span style={{ color: N.textT, fontWeight: 700 }}>2.</span> Status {"\u2192"} Edited: is every edit working? Follow up on anything stuck (see the Last edit column).</div>
         <div style={{ fontSize: 10, color: N.textS }}><span style={{ color: N.textT, fontWeight: 700 }}>3.</span> Sort Week Started, newest first: fix fresh products BEFORE they scale {"\u2014"} 1-2 early complaints is already a signal. Red tags first.</div>
@@ -2350,7 +2498,7 @@ export default function ComplaintDashboard() {
       </div>
 
       {toast && createPortal(
-        <div style={{ position: "fixed", bottom: 26, left: "50%", transform: "translateX(-50%)", background: "rgba(30,30,30,0.97)", border: "1px solid rgba(52,211,153,0.4)", color: "#e8e8e8", fontSize: 13, fontWeight: 600, padding: "10px 20px", borderRadius: 8, zIndex: 10000, boxShadow: "0 8px 32px rgba(0,0,0,0.6)", animation: "toastIn 0.25s ease", fontFamily: FONT, whiteSpace: "nowrap", maxWidth: "90vw", overflow: "hidden", textOverflow: "ellipsis" }}>
+        <div style={{ position: "fixed", bottom: 26, left: "50%", transform: "translateX(-50%)", background: "rgba(30,30,30,0.97)", border: "1px solid rgba(52,211,153,0.4)", color: "#e8e8e8", fontSize: 16, fontWeight: 700, padding: "14px 26px", borderRadius: 10, zIndex: 10000, boxShadow: "0 8px 32px rgba(0,0,0,0.6)", animation: "toastIn 0.25s ease", fontFamily: FONT, whiteSpace: "nowrap", maxWidth: "90vw", overflow: "hidden", textOverflow: "ellipsis" }}>
           <style>{"@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(12px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}"}</style>
           {toast}
         </div>,
