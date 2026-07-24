@@ -9,7 +9,7 @@ var STORE_CSVS = [
     complaintsUrl: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTebDK0L1zu6vE8T7NGW6352-RzjHc4DHGfWH7YjADDGn0Z9J18K6GvlpmHCX6-EpjgZ8KjTD0J20Df/pub?gid=27271439&single=true&output=csv",
     ordersUrl: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTebDK0L1zu6vE8T7NGW6352-RzjHc4DHGfWH7YjADDGn0Z9J18K6GvlpmHCX6-EpjgZ8KjTD0J20Df/pub?gid=1091916976&single=true&output=csv",
     // Contribution margin sheet (published CSV). Cols: B = Product ID, N = refund rate, O = breakeven ROAS.
-    contribUrl: "https://docs.google.com/spreadsheets/d/e/2PACX-1vR2TwY2Xoy8VTCaLt_jNgXe_-VRMTdS_ahkoakiCwHcAqIGg3PFCIK4286TUpeRwVjRW5LGHE5lPGAp/pub?output=csv",
+    contribUrl: "https://docs.google.com/spreadsheets/d/e/2PACX-1vR2TwY2Xoy8VTCaLt_jNgXe_-VRMTdS_ahkoakiCwHcAqIGg3PFCIK4286TUpeRwVjRW5LGHE5lPGAp/pub?gid=702241342&single=true&output=csv",
     // Storefront domain — powers the auto product link + photo in the focus view.
     domain: "clarendale.co",
   },
@@ -17,7 +17,7 @@ var STORE_CSVS = [
     name: "Lark & Clover",
     complaintsUrl: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTebDK0L1zu6vE8T7NGW6352-RzjHc4DHGfWH7YjADDGn0Z9J18K6GvlpmHCX6-EpjgZ8KjTD0J20Df/pub?gid=113813265&single=true&output=csv",
     ordersUrl: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTebDK0L1zu6vE8T7NGW6352-RzjHc4DHGfWH7YjADDGn0Z9J18K6GvlpmHCX6-EpjgZ8KjTD0J20Df/pub?gid=2078912011&single=true&output=csv",
-    contribUrl: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTqyqMMxRWMzCQf8ZMsIERubusembyKZiyoAW6vq4lIbUcd_HxQnA5BOe7QYE-c4U9CXQ9-lh-ZTBQr/pub?output=csv",
+    contribUrl: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTqyqMMxRWMzCQf8ZMsIERubusembyKZiyoAW6vq4lIbUcd_HxQnA5BOe7QYE-c4U9CXQ9-lh-ZTBQr/pub?gid=702241342&single=true&output=csv",
     domain: "larkandclover.com",
   },
   // { name: "Store 3", complaintsUrl: "...", ordersUrl: "...", contribUrl: "...", domain: "..." },
@@ -700,7 +700,7 @@ function AIPanel(props) {
   var d = props.aiData;
   var st = useState({ loading: false, data: null, error: "" });
   var ai = st[0]; var setAi = st[1];
-  var cacheKey = d ? "ai3-" + props.storeName + "-" + props.rowKey + "-" + d.totalComplaints + "-" + (d.sinceWeek || 0) : null;
+  var cacheKey = d ? "ai4-" + props.storeName + "-" + props.rowKey + "-" + d.totalComplaints + "-" + (d.sinceWeek || 0) : null;
 
   function run(force) {
     if (!d || !props.ready) return;
@@ -848,6 +848,7 @@ function FocusPanel(props) {
 
   return (
     <div style={{ background: N.bg, border: "1px solid " + N.border, borderRadius: 8, padding: 16, display: "flex", flexDirection: "column", gap: 14, position: "relative", zIndex: 40 }}>
+      <style>{".zoomable{transition:transform .15s ease;transform-origin:left center;cursor:zoom-in;position:relative}.zoomable:hover{transform:scale(2.4);z-index:80;box-shadow:0 8px 32px rgba(0,0,0,0.7)}"}</style>
       <div style={{ fontSize: 14, fontWeight: 700, color: N.text, display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
         <span style={{ flex: 1 }}>{row.product}</span>
         {qc && qc.notionUrl && <a href={qc.notionUrl} target="_blank" rel="noreferrer" style={{ fontSize: 10, fontWeight: 500, color: N.textS, textDecoration: "none" }}>Notion {"\u2197"}</a>}
@@ -857,21 +858,21 @@ function FocusPanel(props) {
       </div>
       {qcErr && <div style={{ fontSize: 9, color: N.textT, marginTop: -8 }}>Notion: {qcErr}</div>}
       {/* Top row: photo + key stats + AI analysis */}
-      <div style={{ display: "grid", gridTemplateColumns: (imgSrc || (qc && qc.qcImages && qc.qcImages.length > 0)) ? "140px 1fr 1fr" : "1fr 1fr", gap: 16, alignItems: "start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: (imgSrc || (qc && qc.qcImages && qc.qcImages.length > 0)) ? "175px 1fr 1fr" : "1fr 1fr", gap: 16, alignItems: "start" }}>
         {(imgSrc || (qc && qc.qcImages && qc.qcImages.length > 0)) && (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {imgSrc && <img src={imgSrc} alt={row.product} style={{ width: 140, height: 140, objectFit: "cover", borderRadius: 6, border: "1px solid " + N.border, background: N.bg }} />}
+            {imgSrc && <img src={imgSrc} alt={row.product} className="zoomable" style={{ width: 170, height: 170, objectFit: "cover", borderRadius: 6, border: "1px solid " + N.border, background: N.bg }} />}
             {prod && prod.url && (
               <a href={prod.url} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: N.textS, textDecoration: "none", textAlign: "center" }}>View on site {"\u2197"}</a>
             )}
             {qc && qc.qcImages && qc.qcImages.length > 0 && (
               <div>
                 <div style={{ fontSize: 9, fontWeight: 600, color: N.textT, marginBottom: 4 }}>Factory QC photos</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, width: 140 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, width: 170 }}>
                   {qc.qcImages.slice(0, 4).map(function (u, i) {
                     return (
                       <a key={i} href={u} target="_blank" rel="noreferrer">
-                        <img src={u} alt={"QC " + (i + 1)} style={{ width: 68, height: 68, objectFit: "cover", borderRadius: 4, border: "1px solid " + N.border, background: N.bg, display: "block" }} />
+                        <img src={u} alt={"QC " + (i + 1)} className="zoomable" style={{ width: 82, height: 82, objectFit: "cover", borderRadius: 4, border: "1px solid " + N.border, background: N.bg, display: "block" }} />
                       </a>
                     );
                   })}
@@ -1167,7 +1168,7 @@ export default function ComplaintDashboard() {
   var stL = useState(true); var loading = stL[0]; var setLoading = stL[1];
   var stT = useState("USA General Stores"); var title = stT[0]; var setTitle = stT[1];
   var stW = useState([1, 8]); var weekRange = stW[0]; var setWeekRange = stW[1];
-  var stMinSales = useState(50); var minSales = stMinSales[0]; var setMinSales = stMinSales[1];
+  var stMinSales = useState(15); var minSales = stMinSales[0]; var setMinSales = stMinSales[1];
   var stHover = useState(null); var hoveredProduct = stHover[0]; var setHoveredProduct = stHover[1];
   var stZ = useState(DEFAULT_ZONES); var zones = stZ[0]; var setZones = stZ[1];
   var stSrc = useState("loading"); var dataSrc = stSrc[0]; var setDataSrc = stSrc[1];
@@ -1454,6 +1455,18 @@ export default function ComplaintDashboard() {
         if (autoReasons.length > 0) row.killSignal = { tier: "auto", reasons: autoReasons };
         else if (debateReasons.length > 0) row.killSignal = { tier: "debate", reasons: debateReasons };
       }
+      // Scale risk: orders just ramped hard, and the FIRST feedback wave (2-wk shipping lag) is negative.
+      row.scaleRisk = null;
+      var wkO = ordersByKey[p.key] ? ordersByKey[p.key].weekOrders : {};
+      var recent2 = (wkO[latestDataWeek] || 0) + (wkO[latestDataWeek - 1] || 0);
+      var prev2 = (wkO[latestDataWeek - 2] || 0) + (wkO[latestDataWeek - 3] || 0);
+      var recentComplaints = 0;
+      allComplaints.forEach(function (c) {
+        if (c.key === p.key && !c.detailOnly && c.week != null && c.week >= weekRange[1] - 1) recentComplaints++;
+      });
+      if (!row.killSignal && recent2 >= 20 && recent2 >= 2.5 * Math.max(prev2, 1) && recentComplaints >= 3) {
+        row.scaleRisk = { recent2: recent2, prev2: prev2, recentComplaints: recentComplaints };
+      }
       return row;
     });
     // Sorting — click a header to select, click again to flip direction.
@@ -1469,7 +1482,7 @@ export default function ComplaintDashboard() {
       return d * dir;
     });
     return rows;
-  }, [filteredProductData, sortBy, sortDir]);
+  }, [filteredProductData, sortBy, sortDir, ordersByKey, latestDataWeek, allComplaints, weekRange]);
 
   // Actions per product with before/after
   var actionsByProduct = useMemo(function () {
@@ -1565,15 +1578,18 @@ export default function ComplaintDashboard() {
       return {
         category: cat.label,
         pct: ordersInWindow > 0 ? +(cnt / ordersInWindow * 100).toFixed(1) : null,
-        recentPct: recO >= 10 ? +(recC / recO * 100).toFixed(1) : null,
+        recentPct: recO >= 30 ? +(recC / recO * 100).toFixed(1) : null,
         recentOrders: recO,
-        priorPct: priO >= 10 ? +(priC / priO * 100).toFixed(1) : null,
+        priorPct: priO >= 30 ? +(priC / priO * 100).toFixed(1) : null,
         priorOrders: priO,
         warningAt: z.amber[0], problemAt: z.red[0],
       };
     });
+    var recent2O = (wk[latestDataWeek] || 0) + (wk[latestDataWeek - 1] || 0);
+    var prev2O = (wk[latestDataWeek - 2] || 0) + (wk[latestDataWeek - 3] || 0);
     return {
       catStats: catStats,
+      ordersRamp: { last2wOrders: recent2O, prev2wOrders: prev2O, justScaled: recent2O >= 20 && recent2O >= 2.5 * Math.max(prev2O, 1) },
       product: titleByKey[focusedProduct] || focusedProduct,
       sinceWeek: sinceWeek,
       lastAction: lastAction ? {
@@ -1587,7 +1603,7 @@ export default function ComplaintDashboard() {
       orders: ordersInWindow,
       summaries: texts.slice(0, 40).map(function (c) { return { type: c.type, week: c.week, text: c.summary }; }),
     };
-  }, [focusedProduct, allComplaints, actionsByProduct, ordersByKey, titleByKey, zones]);
+  }, [focusedProduct, allComplaints, actionsByProduct, ordersByKey, titleByKey, zones, latestDataWeek]);
   // Data payloads for the floating widgets
   var reportData = useMemo(function () {
     var recentActions = [];
@@ -1879,12 +1895,12 @@ export default function ComplaintDashboard() {
               <tr>
                 <th style={{ background: N.bgS, padding: "6px 4px", position: "sticky", top: 0, width: 28 }}></th>
                 {[
-                  { label: sortableHeader("Week Started", "newest"), align: "left", w: 82 },
-                  { label: "Status", align: "left", w: 66 },
-                  { label: sortableHeader("Orders 14d", "orders7d"), align: "left", w: 74 },
-                  { label: sortableHeader("Total %", "pct"), align: "left", w: 58 },
+                  { label: sortableHeader("Week Started", "newest"), align: "left", w: 96 },
+                  { label: "Status", align: "left", w: 78 },
+                  { label: sortableHeader("Orders 14d", "orders7d"), align: "left", w: 86 },
+                  { label: sortableHeader("Total %", "pct"), align: "left", w: 70 },
+                  { label: "Signal", align: "left", w: 118 },
                   { label: "Product", align: "left" },
-                  { label: "Signal", align: "left", w: 96 },
                 ].map(function (h, i) {
                   return (
                     <th key={i} style={{ background: N.bgS, color: N.textS, fontWeight: 600, fontSize: 8, textTransform: "uppercase", letterSpacing: "0.03em", padding: "6px 7px", textAlign: h.align, whiteSpace: "nowrap", position: "sticky", top: 0, width: h.w || "auto" }}>
@@ -1941,17 +1957,16 @@ export default function ComplaintDashboard() {
                     <td style={{ padding: "5px 7px", textAlign: "left", fontWeight: 700, fontSize: 12, borderBottom: "1px solid " + N.border, color: row.pct >= KILL_TOTAL_THRESHOLD ? N.red : N.text, background: row.pct >= KILL_TOTAL_THRESHOLD ? "rgba(255,115,105,0.12)" : "transparent" }}>
                       {fmtPct(row.pct)}
                     </td>
-                    <td
-                      onClick={function () { setFocusedProduct(isFocused ? null : row.key); setHoveredProduct(null); }}
-                      title={isFocused ? "Click to exit focus" : "Click to focus this product"}
-                      style={{ padding: "5px 7px", textAlign: "left", color: N.text, fontWeight: 500, borderBottom: "1px solid " + N.border, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: isChecked ? "line-through" : "none", cursor: "pointer" }}>
-                      <span style={{ color: isStopped ? N.textS : N.text, borderBottom: "1px dotted rgba(255,255,255,0.2)" }}>{row.product}</span>
-                                          </td>
                     <td style={{ padding: "5px 7px", textAlign: "left", borderBottom: "1px solid " + N.border, whiteSpace: "nowrap" }}>
                       {row.killSignal ? (
                         <span title={(row.killSignal.tier === "auto" ? "AUTO KILL \u2014 " : "DEBATE \u2014 ") + row.killSignal.reasons.join(", ")}
                           style={{ fontSize: 9, fontWeight: 700, color: N.textS, background: "rgba(255,255,255,0.06)", border: "1px solid " + N.border, padding: "2px 7px", borderRadius: 3, letterSpacing: "0.02em" }}>
                           {row.killSignal.tier === "auto" ? "KILL" : "DEBATE"}
+                        </span>
+                      ) : row.scaleRisk ? (
+                        <span title={"Orders just ramped (" + row.scaleRisk.recent2 + " last 2 wks vs " + row.scaleRisk.prev2 + " before) and early feedback is negative (" + row.scaleRisk.recentComplaints + " complaints in the last 2 wks). With ~2-week shipping, the full complaint wave lands ~2 weeks after scaling \u2014 watch closely."}
+                          style={{ fontSize: 9, fontWeight: 700, color: N.textS, background: "rgba(255,255,255,0.06)", border: "1px solid " + N.border, padding: "2px 7px", borderRadius: 3, letterSpacing: "0.02em" }}>
+                          SCALE RISK
                         </span>
                       ) : row.earlyWarning ? (
                         <span title={row.earlyWarning.direction === "both"
@@ -1964,6 +1979,12 @@ export default function ComplaintDashboard() {
                         <span style={{ color: N.textT, fontSize: 10 }}>{"\u2014"}</span>
                       )}
                     </td>
+                    <td
+                      onClick={function () { setFocusedProduct(isFocused ? null : row.key); setHoveredProduct(null); }}
+                      title={isFocused ? "Click to exit focus" : "Click to focus this product"}
+                      style={{ padding: "5px 7px", textAlign: "left", color: N.text, fontWeight: 500, borderBottom: "1px solid " + N.border, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: isChecked ? "line-through" : "none", cursor: "pointer" }}>
+                      <span style={{ color: isStopped ? N.textS : N.text, borderBottom: "1px dotted rgba(255,255,255,0.2)" }}>{row.product}</span>
+                                          </td>
                   </tr>
                 ];
                 return rowEls;
