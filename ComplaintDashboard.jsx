@@ -53,7 +53,7 @@ var COMPLAINT_DETAIL_CSV_URL = "";
 // Google Apps Script Web App URL — enables logging Actions / Stopped Advertising
 // straight into the Google Sheet from the dashboard (with undo).
 // Setup: see apps-script/Code.gs + README. Leave "" to hide the buttons.
-var APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyPf4MYQO4r4NB9yCAa1S7zrMGCcvMCrCuEJGwJfZScPfmGCgKfahIW2ugh9MqDhr0/exec";
+var APPS_SCRIPT_URL = "";
 
 /* ── THEME ── */
 var N = {
@@ -706,6 +706,8 @@ function AIPanel(props) {
   var stCB = useState(false); var chartBusy = stCB[0]; var setChartBusy = stCB[1];
   var stCE = useState(""); var chartErr = stCE[0]; var setChartErr = stCE[1];
   var stPB = useState(false); var packBusy = stPB[0]; var setPackBusy = stPB[1];
+  var stOR = useState(false); var openRec = stOR[0]; var setOpenRec = stOR[1];
+  var stOF = useState(false); var openFix = stOF[0]; var setOpenFix = stOF[1];
   var stPE = useState(""); var packErr = stPE[0]; var setPackErr = stPE[1];
 
   function makeImagePack() {
@@ -719,6 +721,7 @@ function AIPanel(props) {
     }).then(function (r) { return r.json(); }).then(async function (j) {
       if (j.error) { setPackBusy(false); setPackErr(j.error); return; }
       var zip = new JSZip();
+      zip.file("REVIEW-BY-RENE-FIRST.txt", "These image edits are PROPOSALS.\nSend this pack to Ren\u00E9 for review \u2014 do not run any prompt before his sign-off.");
       for (var i = 0; i < j.photos.length; i++) {
         var ph = j.photos[i];
         var folder = zip.folder("Foto " + ph.index);
@@ -733,7 +736,7 @@ function AIPanel(props) {
           folder.file("original-url.txt", ph.imageUrl);
         }
         if (ph.verdict === "small" && ph.prompt) {
-          folder.file("prompt.txt", ph.prompt);
+          folder.file("prompt.txt", "[FOR REN\u00C9'S REVIEW \u2014 do not run before approval]\n\n" + ph.prompt);
         } else if (ph.verdict === "big") {
           folder.file("BIG-EDIT-check-ad-video.txt", "Image editing cannot fix this.\n" + ph.reason + "\nCheck the ad video (link in the focus panel) and consider sourcing from a different factory (competitor variant photos in the panel help on 1688/Taobao).");
         } else {
@@ -766,7 +769,7 @@ function AIPanel(props) {
       document.body.appendChild(a); a.click(); a.remove();
     }).catch(function (e) { setChartBusy(false); setChartErr(String(e.message || e)); });
   }
-  var cacheKey = d ? "ai6-" + props.storeName + "-" + props.rowKey + "-" + d.totalComplaints + "-" + (d.sinceWeek || 0) : null;
+  var cacheKey = d ? "ai8-" + props.storeName + "-" + props.rowKey + "-" + d.totalComplaints + "-" + (d.sinceWeek || 0) : null;
 
   function run(force) {
     if (!d || !props.ready) return;
@@ -814,13 +817,33 @@ function AIPanel(props) {
         <>
           <div style={{ fontSize: 11.5, color: N.text, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{ai.data.summary}</div>
           <div style={{ background: "rgba(82,156,202,0.08)", border: "1px solid rgba(82,156,202,0.3)", borderRadius: 5, padding: "8px 10px" }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: N.blue, marginBottom: 3 }}>Recommendation</div>
-            <div style={{ fontSize: 11.5, color: N.text, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{ai.data.recommendation}</div>
+            <div onClick={function () { setOpenRec(!openRec); }} style={{ fontSize: 10, fontWeight: 700, color: N.blue, cursor: "pointer", userSelect: "none" }}>
+              <span style={{ display: "inline-block", width: 14 }}>{openRec ? "\u2212" : "+"}</span>Recommendation
+            </div>
+            {openRec && <div style={{ fontSize: 11.5, color: N.text, lineHeight: 1.55, whiteSpace: "pre-wrap", marginTop: 4 }}>{ai.data.recommendation}</div>}
           </div>
+          {ai.data.needsReneReview && (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, background: "rgba(255,163,68,0.08)", border: "1px solid rgba(255,163,68,0.3)", borderRadius: 5, padding: "6px 10px" }}>
+              <span style={{ fontSize: 10, color: N.orange, fontWeight: 600 }}>Image change {"\u2014"} send to Ren{"\u00E9"} for review before executing.</span>
+              <button onClick={function () {
+                var msg = "REVIEW REQUEST \u2014 image change\n" +
+                  "Product: " + (d ? d.product : "") + " (" + props.storeName + ")\n" +
+                  (props.productUrl ? "Page: " + props.productUrl + "\n" : "") +
+                  "\nRecommendation:\n" + (ai.data.recommendation || "") +
+                  (ai.data.deliverable ? "\n\nProposed fix:\n" + ai.data.deliverable : "");
+                try { navigator.clipboard.writeText(msg); } catch (e) { /* no-op */ }
+              }}
+                style={{ background: "transparent", border: "1px solid rgba(255,163,68,0.4)", color: N.orange, fontSize: 9, fontWeight: 600, padding: "2px 10px", borderRadius: 3, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+                Copy for Ren{"\u00E9"}
+              </button>
+            </div>
+          )}
           {ai.data.deliverable && (
             <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid " + N.border, borderRadius: 5, padding: "8px 10px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3, gap: 6 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: N.textS }}>Concrete fix</div>
+                <div onClick={function () { setOpenFix(!openFix); }} style={{ fontSize: 10, fontWeight: 700, color: N.textS, cursor: "pointer", userSelect: "none" }}>
+                  <span style={{ display: "inline-block", width: 14 }}>{openFix ? "\u2212" : "+"}</span>Concrete fix
+                </div>
                 <div style={{ display: "flex", gap: 6 }}>
                   {props.productUrl && (
                     <button disabled={chartBusy} onClick={makeChartHtml}
@@ -840,7 +863,7 @@ function AIPanel(props) {
               </div>
               {chartErr && <div style={{ fontSize: 9, color: N.textT, marginBottom: 4 }}>Size chart: {chartErr}</div>}
               {packErr && <div style={{ fontSize: 9, color: N.textT, marginBottom: 4 }}>Image pack: {packErr}</div>}
-              <div style={{ fontSize: 11, color: N.text, lineHeight: 1.55, whiteSpace: "pre-wrap", fontVariantNumeric: "tabular-nums" }}>{ai.data.deliverable}</div>
+              {openFix && <div style={{ fontSize: 11, color: N.text, lineHeight: 1.55, whiteSpace: "pre-wrap", fontVariantNumeric: "tabular-nums" }}>{ai.data.deliverable}</div>}
             </div>
           )}
           <div style={{ fontSize: 9, color: N.textT }}>
@@ -912,6 +935,7 @@ function FocusPanel(props) {
   // Factory QC photos + size chart from the Notion backend DB.
   var stPrev = useState(null); var preview = stPrev[0]; var setPreview = stPrev[1];
   var stAds = useState(null); var ads = stAds[0]; var setAds = stAds[1];
+  var stSV = useState(false); var showVariants = stSV[0]; var setShowVariants = stSV[1];
   var stQC = useState(null); var qc = stQC[0]; var setQC = stQC[1];
   var stQCE = useState(""); var qcErr = stQCE[0]; var setQCErr = stQCE[1];
   var stQCD = useState(false); var qcDone = stQCD[0]; var setQCDone = stQCD[1];
@@ -1010,8 +1034,10 @@ function FocusPanel(props) {
                 {ads.competitorUrl && <a href={ads.competitorUrl} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: N.textS, textDecoration: "none" }}>Competitor page {"\u2197"}</a>}
                 {ads.variantPhotos && ads.variantPhotos.length > 0 && (
                   <div>
-                    <div style={{ fontSize: 9, fontWeight: 600, color: N.textT, margin: "4px 0" }}>Competitor variants (for 1688/Taobao sourcing)</div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, width: 170 }}>
+                    <div onClick={function () { setShowVariants(!showVariants); }} style={{ fontSize: 9, fontWeight: 600, color: N.textT, margin: "4px 0", cursor: "pointer", userSelect: "none" }}>
+                      <span style={{ display: "inline-block", width: 12 }}>{showVariants ? "\u2212" : "+"}</span>Competitor variants (for 1688/Taobao sourcing)
+                    </div>
+                    {showVariants && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, width: 170 }}>
                       {ads.variantPhotos.slice(0, 4).map(function (u, i) {
                         return (
                           <a key={i} href={u} target="_blank" rel="noreferrer">
@@ -1020,7 +1046,7 @@ function FocusPanel(props) {
                           </a>
                         );
                       })}
-                    </div>
+                    </div>}
                   </div>
                 )}
               </div>
@@ -1035,7 +1061,7 @@ function FocusPanel(props) {
                 SCALE RISK {"\u00B7"} just scaled ({row.scaleRisk.prev2} {"\u2192"} {row.scaleRisk.recent2} orders), early feedback negative
               </span>
             )}
-            {row.firstScaleWeek != null && (
+            {row.firstScaleWeek != null && row.freshlyScaled && (
               <span title={"First week with real ad volume"}
                 style={{ fontSize: 9, fontWeight: 600, color: N.textS, background: "rgba(255,255,255,0.06)", border: "1px solid " + N.border, padding: "2px 8px", borderRadius: 3 }}>
                 First scaled W{row.firstScaleWeek}
@@ -1218,6 +1244,14 @@ function FloatingWidgets(props) {
   var stIn = useState(""); var input = stIn[0]; var setInput = stIn[1];
   var stBusy = useState(false); var busy = stBusy[0]; var setBusy = stBusy[1];
   var stRep = useState({ loading: false, text: "", error: "" }); var rep = stRep[0]; var setRep = stRep[1];
+  var stNotes = useState(function () {
+    try { return window.localStorage.getItem("rene-report-notes") || ""; } catch (e) { return ""; }
+  });
+  var notes = stNotes[0]; var setNotes = stNotes[1];
+  function saveNotes(v) {
+    setNotes(v);
+    try { window.localStorage.setItem("rene-report-notes", v); } catch (e) { /* no-op */ }
+  }
 
   function send() {
     var q = input.trim();
@@ -1261,6 +1295,9 @@ function FloatingWidgets(props) {
       <div style={{ position: "fixed", right: 14, bottom: 14, display: "flex", gap: 8, zIndex: 51 }}>
         <button onClick={function () { setOpen(open === "chat" ? null : "chat"); }} style={fabStyle(open === "chat")}>AI chat</button>
         <button onClick={function () { setOpen(open === "reports" ? null : "reports"); }} style={fabStyle(open === "reports")}>Reports</button>
+        <button onClick={function () { setOpen(open === "notes" ? null : "notes"); }} style={fabStyle(open === "notes")}>
+          Notes{notes.trim() ? " \u2022" : ""}
+        </button>
       </div>
 
       {open === "chat" && (
@@ -1295,6 +1332,30 @@ function FloatingWidgets(props) {
               style={{ flex: 1, background: N.bg, border: "1px solid " + N.border, borderRadius: 5, color: N.text, fontSize: 11, fontFamily: "inherit", padding: "7px 9px", outline: "none", resize: "none" }} />
             <button onClick={send} disabled={busy} style={{ background: "rgba(255,255,255,0.1)", border: "1px solid " + N.border, color: N.text, fontSize: 11, fontWeight: 600, padding: "0 14px", borderRadius: 5, cursor: "pointer", fontFamily: "inherit" }}>Send</button>
           </div>
+        </div>
+      )}
+
+      {open === "notes" && (
+        <div style={panelBase}>
+          <div style={{ padding: "10px 14px", borderBottom: "1px solid " + N.border, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: N.text }}>Notes for Ren{"\u00E9"}</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              {props.chatContext && props.chatContext.product && (
+                <button onClick={function () {
+                  var line = "\u2022 " + props.chatContext.product + " (" + (props.storeName || "") + "): ";
+                  saveNotes(notes ? notes.replace(/\s*$/, "") + "\n" + line : line);
+                }} style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>+ product line</button>
+              )}
+              <button onClick={function () { try { navigator.clipboard.writeText(notes); } catch (e) { /* no-op */ } }}
+                style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>Copy</button>
+              <button onClick={function () { if (window.confirm("Clear all notes? This cannot be undone.")) saveNotes(""); }}
+                style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>Clear</button>
+            </div>
+          </div>
+          <textarea value={notes} placeholder={"Notes for the weekly report to Ren\u00E9 \u2014 autosaved, survives store switches and refreshes.\n\n\u2022 Marivela bikini: sourcing different factory, waiting on WIIO\n\u2022 ..."}
+            onChange={function (e) { saveNotes(e.target.value); }}
+            style={{ flex: 1, minHeight: 260, background: N.bg, border: "none", color: N.text, fontSize: 11.5, lineHeight: 1.6, fontFamily: "inherit", padding: 12, outline: "none", resize: "none" }} />
+          <div style={{ padding: "6px 14px", borderTop: "1px solid " + N.border, fontSize: 9, color: N.textT }}>Autosaved {"\u00B7"} shared across both stores {"\u00B7"} never cleared automatically</div>
         </div>
       )}
 
@@ -1647,6 +1708,7 @@ export default function ComplaintDashboard() {
         }
       });
       var freshlyScaled = row.firstScaleWeek != null && row.firstScaleWeek >= latestDataWeek - 3;
+      row.freshlyScaled = freshlyScaled;
       var hardRamp = recent2 >= 1.8 * Math.max(prev2, 1);
       if (!row.killSignal && recent2 >= 10 && (freshlyScaled || hardRamp) && (recentComplaints >= 2 || recentSerious >= 1)) {
         row.scaleRisk = { recent2: recent2, prev2: prev2, recentComplaints: recentComplaints, recentSerious: recentSerious, firstScaleWeek: row.firstScaleWeek };
@@ -1796,13 +1858,14 @@ export default function ComplaintDashboard() {
         beforePct: lastAction.beforePct, afterPct: lastAction.afterPct, deltaPP: lastAction.deltaPP,
         beforeOrders: lastAction.beforeOrders, afterOrders: lastAction.afterOrders,
       } : null,
+      refundRate: contribData[focusedProduct] && contribData[focusedProduct].refundRate != null ? contribData[focusedProduct].refundRate : null,
       counts: counts,
       totalComplaints: rows.length,
       withText: texts.length,
       orders: frow.orders,
       summaries: texts.slice(0, 40).map(function (c) { return { type: c.type, week: c.week, text: c.summary }; }),
     };
-  }, [focusedProduct, heatmapData, allComplaints, actionsByProduct, ordersByKey, titleByKey, zones, latestDataWeek, ordersWR]);
+  }, [focusedProduct, heatmapData, allComplaints, actionsByProduct, ordersByKey, titleByKey, zones, latestDataWeek, ordersWR, contribData]);
   // Data payloads for the floating widgets
   var reportData = useMemo(function () {
     var recentActions = [];
@@ -2058,11 +2121,11 @@ export default function ComplaintDashboard() {
       </div>
 
       {/* Amber's weekly workflow */}
-      <div style={Object.assign({ background: N.bgC, border: "1px solid " + N.border, borderRadius: 6, padding: "10px 14px", display: "flex", gap: 18, alignItems: "baseline", flexWrap: "wrap" }, dimUI)}>
-        <span style={{ fontSize: 10, fontWeight: 700, color: N.text, whiteSpace: "nowrap" }}>Weekly review {"\u2014"} every product, once a week. Fix it or kill it.</span><br>
-        <span style={{ fontSize: 10, color: N.textS }}><span style={{ color: N.textT, fontWeight: 700 }}>1.</span> Work top to bottom: most orders first (default view). Open each product, read the AI analysis, act.</span><br>
-        <span style={{ fontSize: 10, color: N.textS }}><span style={{ color: N.textT, fontWeight: 700 }}>2.</span> Status {"\u2192"} Edited: is every edit working? Follow up on anything stuck (see the Last edit column).</span><br>
-        <span style={{ fontSize: 10, color: N.textS }}><span style={{ color: N.textT, fontWeight: 700 }}>3.</span> Sort Week Started, newest first: fix fresh products BEFORE they scale {"\u2014"} 1-2 early complaints is already a signal. Red tags first.</span><br>
+      <div style={Object.assign({ background: N.bgC, border: "1px solid " + N.border, borderRadius: 6, padding: "10px 14px", display: "flex", flexDirection: "column", gap: 4 }, dimUI)}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: N.text, marginBottom: 2 }}>Weekly review {"\u2014"} every product, once a week. Fix it or kill it.</div>
+        <div style={{ fontSize: 10, color: N.textS }}><span style={{ color: N.textT, fontWeight: 700 }}>1.</span> Work top to bottom: most orders first (default view). Open each product, read the AI analysis, act.</div>
+        <div style={{ fontSize: 10, color: N.textS }}><span style={{ color: N.textT, fontWeight: 700 }}>2.</span> Status {"\u2192"} Edited: is every edit working? Follow up on anything stuck (see the Last edit column).</div>
+        <div style={{ fontSize: 10, color: N.textS }}><span style={{ color: N.textT, fontWeight: 700 }}>3.</span> Sort Week Started, newest first: fix fresh products BEFORE they scale {"\u2014"} 1-2 early complaints is already a signal. Red tags first.</div>
       </div>
 
       {/* Table */}
