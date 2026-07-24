@@ -58,6 +58,7 @@ ${Array.isArray(d.customRules) && d.customRules.length > 0 ? "OWNER FEEDBACK RUL
 - Packaging CANNOT change: it is standardized across all items. Never recommend packaging fixes.
 - What CAN change: the size chart, listing text/photos, fit notes, the supplier (different factory), or killing the product.
 - SIZE-SHIFT SHIPPING is a core lever: when a product consistently runs too small (or too large), a common and often BEST fix is instructing the supplier to simply ship one size up (or down) versus the ordered size — e.g. "customer orders M → ship L". Consider it whenever one sizing direction dominates. Do NOT invent a "fulfillment error" or packing-check story unless tickets literally say the size TAG on the received item differs from the size they ordered.
+- STRONG-ACTION THRESHOLD: size-shift shipping, a full chart rebuild, a factory switch, and kill are hard to reverse. Only recommend one when ALL of these hold for the driving category: dashboardPct >= 10%, at least 30 orders in the window, and at least 3 complaints in that category. Below any of these, say explicitly that the sample is too small for a strong move, and limit yourself to a light action (a fit note, a 2-3 cm chart nudge) or "watch — recheck in 2 weeks". A scary percentage on a tiny sample is noise, not a mandate.
 - QC PHOTO COLOR IS NOT A SIGNAL: the factory QC photo shows ONE random colorway; the listing sells many. A color difference between the QC photo and the marketing photo is completely normal — never flag it and never recommend a fix for it. Color is only an issue when CUSTOMER TICKETS complain about the color they received vs ordered.
 - PATTERN / FABRIC QUALITY IS a signal: if the QC photo shows a clearly different PRINT/PATTERN (different design, wrong print scale) or visibly cheaper-looking fabric than the marketing photo — or the tickets show a general consensus of disappointment across categories with no single fixable cause — recommend sourcing this product from a better factory on 1688/Taobao, using the competitor page and variant photos in the panel as the search material.
 - WRONG-PRODUCT GAPS: when the marketing/funnel photos and what ships are fundamentally DIFFERENT garments (different construction/type — not just styling), edits will not fix it. The recommendation order is: (1) confirm with the factory that they are shipping the correct item, (2) check if the accurate product is available — from this factory or a better one via 1688/Taobao (competitor page + variant photos in the panel), (3) ONLY if no accurate source exists: kill the product (sooner when the refund rate is high). Never jump straight to "kill", and never propose cosmetic fixes for a wrong garment.
@@ -71,6 +72,11 @@ SIZE CHART ADJUSTMENT LOGIC — the chart steers customer choice; it does not de
 - Never move the whole row: adjust ONLY the measurement customers complain about (waist ≠ bust ≠ length), or you create new complaints elsewhere.
 - Both "too small" AND "too large" on the same garment → the chart mismatches reality: rebuild it from the factory's actual finished-garment measurements.
 - One size step at a time; re-evaluate after ~2 weeks of post-change orders.
+
+ORDER-DATE TIMELINE (how every number here is built):
+- Each complaint is attributed to the week its ORDER WAS PLACED — an exact date pulled from Shopify where available (sinceEdit.exactDatePct tells you the coverage), with a week-minus-2 shipping fallback for the rest.
+- After an edit in week E: post-edit numbers count ONLY complaints whose order was placed in/after E. Complaints that arrived after the edit but belong to pre-edit orders are excluded (sinceEdit.inFlight counts them); never blame or credit an edit for those.
+- If sinceEdit.tooEarly is true: no post-edit orders have produced feedback yet — say so, judge nothing.
 
 POST-EDIT RULE (critical): once a category has been edited, its blended/window rates are HISTORY. NEVER quote dashboardPct or any since-edit blended total for the edited category — the ONLY current number for it is the authoritative after-edit rate (afterPct). Say "now at {afterPct} after the edit (was {beforePct})" and nothing else about that category's level.
 
@@ -93,7 +99,8 @@ OUTPUT RULES:
   * Nothing wrong: empty string "".
 
 Respond with ONLY valid JSON, no markdown fences:
-{"summary": "...", "recommendation": "...", "deliverable": "...", "needsReneReview": true|false}`;
+{"summary": "...", "recommendation": "...", "deliverable": "...", "needsReneReview": true|false, "noActionNeeded": true|false}
+Set noActionNeeded to true when NO product edit is warranted: all rates safe (or one slight warning), complaints only about shipping/delivery time, or only vague complaints with no fixable cause. When true, the recommendation should say to leave the product alone.`;
 
   const content = images.map((i) => ({ type: "image", source: { type: "url", url: i.url } }));
   content.push({ type: "text", text: textPrompt });
@@ -119,7 +126,7 @@ Respond with ONLY valid JSON, no markdown fences:
     }
     const text = (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
     const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
-    return res.status(200).json({ summary: parsed.summary, recommendation: parsed.recommendation, deliverable: parsed.deliverable || "", needsReneReview: !!parsed.needsReneReview });
+    return res.status(200).json({ summary: parsed.summary, recommendation: parsed.recommendation, deliverable: parsed.deliverable || "", needsReneReview: !!parsed.needsReneReview, noActionNeeded: !!parsed.noActionNeeded });
   } catch (e) {
     return res.status(500).json({ error: String(e.message || e) });
   }
