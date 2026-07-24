@@ -25,11 +25,12 @@ AUTHORITATIVE effect numbers — quote these EXACTLY, never recompute or replace
   const v = d.visuals || {};
   const images = [];
   const push = (url, label) => {
-    if (url && IMG_RE.test(url) && images.length < 4) images.push({ url, label });
+    if (url && IMG_RE.test(url) && images.length < 5) images.push({ url, label });
   };
   push(v.marketing, "MARKETING image (what the customer sees on the site)");
   (v.qcImages || []).forEach((u, i) => push(u, `FACTORY QC photo ${i + 1} (what actually ships)`));
   push(v.sizeChart, "SIZE CHART currently in use");
+  (v.variantPhotos || []).forEach((u, i) => push(u, `COMPETITOR VARIANT photo ${i + 1} (sourcing reference for a better factory)`));
   const hasSizeChartImg = images.some((i) => i.label.startsWith("SIZE CHART"));
 
   const textPrompt = `You analyze one fashion e-commerce product (customers: US women 45-65). The owner reads raw numbers himself — your job: find the real gap and hand him a ready-to-use fix.
@@ -52,13 +53,31 @@ ${tickets || "(none)"}
 
 ${images.length > 0 ? "Attached images, in order: " + images.map((i, n) => `[${n + 1}] ${i.label}`).join("; ") + ". Compare marketing vs factory photos for gaps (color, length, fabric look). Read the size chart measurements if attached." : "No images attached."}
 
+BUSINESS CONSTRAINTS (never recommend the impossible):
+- The product itself CANNOT change: no fabric changes, no different cutting, no design tweaks. The only product-side lever is sourcing the same product from a DIFFERENT factory — recommend that when quality/looks complaints suggest this factory can't deliver (use sparingly).
+- Packaging CANNOT change: it is standardized across all items. Never recommend packaging fixes.
+- What CAN change: the size chart, listing text/photos, fit notes, the supplier (different factory), or killing the product.
+- For product-feature or quality complaints (missing pockets, 2D instead of 3D, flimsy build): the fix is sourcing the SAME product from a better factory on 1688/Taobao — the competitor page and competitor variant photos in the panel are the search material. Recommend exactly that when it applies.
+- You cannot watch videos. When the gap might live in the ad video (product shown with features it lacks), say: "check the ad video (link in the panel) to confirm".
+
+SIZE CHART ADJUSTMENT LOGIC — the chart steers customer choice; it does not describe the garment:
+- "Too small" complaints on a measurement → LOWER that number in the chart by ~1 size step (2-3 cm), so borderline customers size UP.
+- "Too large" complaints → RAISE that number, so customers size DOWN.
+- Never move the whole row: adjust ONLY the measurement customers complain about (waist ≠ bust ≠ length), or you create new complaints elsewhere.
+- Both "too small" AND "too large" on the same garment → the chart mismatches reality: rebuild it from the factory's actual finished-garment measurements.
+- One size step at a time; re-evaluate after ~2 weeks of post-change orders.
+
+POST-EDIT RULE (critical): once a category has been edited, its blended/window rates are HISTORY. NEVER quote dashboardPct or any since-edit blended total for the edited category — the ONLY current number for it is the authoritative after-edit rate (afterPct). Say "now at {afterPct} after the edit (was {beforePct})" and nothing else about that category's level.
+
 NUMBER RULES (critical):
 - Every number you write MUST be copied character-for-character from the data above. NEVER compute, average, or estimate a number yourself. Category rates = dashboardPct unless you explicitly name a different window.
 - When judging the last edit, use ONLY the authoritative before/after rates given above.
 - If a value is null or a sample is under 30 orders, say "too early to tell" instead of citing it.
 
 OUTPUT RULES:
+- PLAIN TEXT ONLY in all three fields: never markdown — no **bold**, no # headers, no backticks. Bullets with "\u2022 " are fine.
 - summary: max 3 bullets ("\u2022 "), each under 15 words, 5th grade language. ONLY categories in warning/problem or clearly rising. Rates and direction, never counts. If an edit exists: one bullet on whether its target rate dropped. If nothing is wrong: exactly one bullet "No real problem \u2014 all rates in the safe zone."
+- NO EDIT is a valid and common outcome. A few scattered complaints are normal e-commerce background noise. If the honest answer is "leave it alone", say exactly that — never invent a fix to sound useful. In that case deliverable = "".
 - recommendation: exactly 1 bullet: the single most impactful fix, named super specifically (which measurement, which photo, which supplier instruction).
 - deliverable: the ready-to-use artifact for that fix. Pick ONE:
   * Sizing issue${hasSizeChartImg ? " (size chart attached — transcribe it)" : ""}: the FULL adjusted size chart as a plain-text table, changing ONLY what needs changing, marking changes like "71 cm (+2)". If no chart is readable, write the exact per-size adjustment instruction instead.
