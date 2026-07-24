@@ -9,10 +9,10 @@ export default async function handler(req, res) {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return res.status(500).json({ error: "ANTHROPIC_API_KEY not set" });
   const { url, complaints } = req.body || {};
-  const clean = String(url || "").split("?")[0].replace(/\/$/, "");
-  if (!/^https:\/\/[a-z0-9.-]+\/products\/[a-z0-9-]+$/i.test(clean)) {
-    return res.status(400).json({ error: "url must be a product page URL" });
-  }
+  // Accept any URL containing /products/<handle> (suggest.json appends ?_pos=... tracking params)
+  const m = String(url || "").match(/^(https?:\/\/[^/]+)[^?#]*\/products\/([^/?#]+)/i);
+  if (!m) return res.status(400).json({ error: "invalid product url: " + String(url).slice(0, 120) });
+  const clean = m[1].replace(/^http:/, "https:") + "/products/" + m[2];
   try {
     const pr = await fetch(clean + ".js", { headers: { "User-Agent": "Mozilla/5.0 (dashboard)" } });
     if (!pr.ok) return res.status(502).json({ error: "Could not fetch product (" + pr.status + ")" });
