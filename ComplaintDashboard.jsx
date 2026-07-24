@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 
 /* ══════════════════════════════════════════
    STORE CONFIG — add up to 5 stores
@@ -48,8 +49,7 @@ var COMPLAINT_DETAIL_CSV_URL = "";
 // Google Apps Script Web App URL — enables logging Actions / Stopped Advertising
 // straight into the Google Sheet from the dashboard (with undo).
 // Setup: see apps-script/Code.gs + README. Leave "" to hide the buttons.
-var APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyPf4MYQO4r4NB9yCAa1S7zrMGCcvMCrCuEJGwJfZScPfmGCgKfahIW2ugh9MqDhr0/exec";
-
+var APPS_SCRIPT_URL = "";
 
 /* ── THEME ── */
 var N = {
@@ -699,7 +699,7 @@ function AIPanel(props) {
   var d = props.aiData;
   var st = useState({ loading: false, data: null, error: "" });
   var ai = st[0]; var setAi = st[1];
-  var cacheKey = d ? "ai4-" + props.storeName + "-" + props.rowKey + "-" + d.totalComplaints + "-" + (d.sinceWeek || 0) : null;
+  var cacheKey = d ? "ai5-" + props.storeName + "-" + props.rowKey + "-" + d.totalComplaints + "-" + (d.sinceWeek || 0) : null;
 
   function run(force) {
     if (!d || !props.ready) return;
@@ -857,10 +857,12 @@ function FocusPanel(props) {
         )}
       </div>
       {qcErr && <div style={{ fontSize: 9, color: N.textT, marginTop: -8 }}>Notion: {qcErr}</div>}
-      {preview && (
-        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.88)", backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)", zIndex: 90, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
-          <img src={preview} alt="preview" style={{ maxWidth: "92vw", maxHeight: "92vh", width: "auto", height: "auto", objectFit: "contain", borderRadius: 6, boxShadow: "0 12px 48px rgba(0,0,0,0.8)" }} />
-        </div>
+      {preview && createPortal(
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.9)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", animation: "lbFade 0.15s ease" }}>
+          <style>{"@keyframes lbFade{from{opacity:0}to{opacity:1}}@keyframes lbPop{from{opacity:0;transform:scale(0.88)}to{opacity:1;transform:scale(1)}}"}</style>
+          <img src={preview} alt="preview" style={{ maxWidth: "92vw", maxHeight: "92vh", width: "auto", height: "auto", objectFit: "contain", borderRadius: 8, boxShadow: "0 16px 64px rgba(0,0,0,0.9)", animation: "lbPop 0.18s cubic-bezier(0.2, 0.8, 0.3, 1)" }} />
+        </div>,
+        document.body
       )}
       {/* Top row: photo + key stats + AI analysis */}
       <div style={{ display: "grid", gridTemplateColumns: (imgSrc || (qc && qc.qcImages && qc.qcImages.length > 0)) ? "175px 1fr 1fr" : "1fr 1fr", gap: 16, alignItems: "start" }}>
@@ -1467,11 +1469,21 @@ export default function ComplaintDashboard() {
         if (autoReasons.length > 0) row.killSignal = { tier: "auto", reasons: autoReasons };
         else if (debateReasons.length > 0) row.killSignal = { tier: "debate", reasons: debateReasons };
       }
-      // Scale risk: orders just ramped, and the FIRST feedback wave (2-wk shipping lag) is negative.
-      // Triggers early: 2 recent complaints of any kind, OR even 1 serious discrepancy
-      // (Looks Different / Quality — missing pockets, 2D instead of 3D, wrong item vibes).
-      row.scaleRisk = null;
+      // First week this product started scaling (first week with real volume / a clear jump)
       var wkO = ordersByKey[p.key] ? ordersByKey[p.key].weekOrders : {};
+      row.firstScaleWeek = null;
+      var wNums = Object.keys(wkO).map(Number).sort(function (a, b) { return a - b; });
+      for (var wi = 0; wi < wNums.length; wi++) {
+        var w = wNums[wi];
+        var vol = wkO[w] || 0;
+        var prevVol = wkO[w - 1] || 0;
+        if (vol >= 20 || (vol >= 10 && vol >= 3 * Math.max(prevVol, 1))) { row.firstScaleWeek = w; break; }
+      }
+      // Scale risk: FRESHLY scaled (first real volume within the last 4 data weeks, i.e. the
+      // first feedback wave is arriving right now given ~2-wk shipping) — or a hard 2-week ramp —
+      // combined with negative early feedback: 2 complaints of any kind OR even 1 serious
+      // discrepancy (Looks Different / Quality — missing pockets, 2D instead of 3D, wrong item).
+      row.scaleRisk = null;
       var recent2 = (wkO[latestDataWeek] || 0) + (wkO[latestDataWeek - 1] || 0);
       var prev2 = (wkO[latestDataWeek - 2] || 0) + (wkO[latestDataWeek - 3] || 0);
       var recentComplaints = 0, recentSerious = 0;
@@ -1481,18 +1493,10 @@ export default function ComplaintDashboard() {
           if (c.type === "looks_different" || c.type === "quality") recentSerious++;
         }
       });
-      var ramped = recent2 >= 10 && recent2 >= 1.8 * Math.max(prev2, 1);
-      if (!row.killSignal && ramped && (recentComplaints >= 2 || recentSerious >= 1)) {
-        row.scaleRisk = { recent2: recent2, prev2: prev2, recentComplaints: recentComplaints, recentSerious: recentSerious };
-      }
-      // First week this product started scaling (first week with real volume / a clear jump)
-      row.firstScaleWeek = null;
-      var wNums = Object.keys(wkO).map(Number).sort(function (a, b) { return a - b; });
-      for (var wi = 0; wi < wNums.length; wi++) {
-        var w = wNums[wi];
-        var vol = wkO[w] || 0;
-        var prevVol = wkO[w - 1] || 0;
-        if (vol >= 20 || (vol >= 10 && vol >= 3 * Math.max(prevVol, 1))) { row.firstScaleWeek = w; break; }
+      var freshlyScaled = row.firstScaleWeek != null && row.firstScaleWeek >= latestDataWeek - 3;
+      var hardRamp = recent2 >= 1.8 * Math.max(prev2, 1);
+      if (!row.killSignal && recent2 >= 10 && (freshlyScaled || hardRamp) && (recentComplaints >= 2 || recentSerious >= 1)) {
+        row.scaleRisk = { recent2: recent2, prev2: prev2, recentComplaints: recentComplaints, recentSerious: recentSerious, firstScaleWeek: row.firstScaleWeek };
       }
       return row;
     });
@@ -1565,6 +1569,8 @@ export default function ComplaintDashboard() {
   // Payload for the AI analysis: ALL feedback since the latest edit (or all data if never edited).
   var focusAI = useMemo(function () {
     if (!focusedProduct) return null;
+    var frow = heatmapData.find(function (r) { return r.key === focusedProduct; });
+    if (!frow) return null;
     var acts = actionsByProduct[focusedProduct] || [];
     var sinceWeek = null;
     var lastAction = null;
@@ -1579,32 +1585,28 @@ export default function ComplaintDashboard() {
     var texts = rows.filter(function (c) { return c.summary; });
     texts.sort(function (a, b) { return (b.week || 0) - (a.week || 0); });
     var wk = ordersByKey[focusedProduct] ? ordersByKey[focusedProduct].weekOrders : {};
-    var ordersInWindow = 0;
-    Object.keys(wk).forEach(function (w) {
-      if (sinceWeek == null || parseInt(w) >= sinceWeek - LAG_WEEKS) ordersInWindow += wk[w];
-    });
-    // Per-category RATES + recent-vs-prior trend (what the AI should reason about)
-    var cWeeks = rows.map(function (c) { return c.week; }).filter(function (w) { return w != null; });
+    var cWeeks = allComplaints.filter(function (c) { return c.key === focusedProduct && !c.detailOnly && c.week != null; }).map(function (c) { return c.week; });
     var latestCW = cWeeks.length > 0 ? Math.max.apply(null, cWeeks) : null;
     var ordersLagged = function (startW, endW) {
       var t = 0;
       for (var w = startW - LAG_WEEKS; w <= endW - LAG_WEEKS; w++) { if (w >= 1) t += wk[w] || 0; }
       return t;
     };
-    var winStart = sinceWeek != null ? sinceWeek : (cWeeks.length > 0 ? Math.min.apply(null, cWeeks) : 1);
+    var winStart = cWeeks.length > 0 ? Math.min.apply(null, cWeeks) : 1;
     var recO = latestCW != null ? ordersLagged(latestCW - 1, latestCW) : 0;
     var priO = latestCW != null ? ordersLagged(winStart, latestCW - 2) : 0;
+    // dashboardPct = EXACTLY the number on the category tiles (same denominator, same window).
     var catStats = CATEGORIES.map(function (cat) {
-      var cnt = counts[cat.key] || 0;
       var recC = 0, priC = 0;
-      rows.forEach(function (c) {
-        if (c.type !== cat.key || c.week == null) return;
+      allComplaints.forEach(function (c) {
+        if (c.key !== focusedProduct || c.detailOnly || c.type !== cat.key || c.week == null) return;
         if (latestCW != null && c.week >= latestCW - 1) recC++; else priC++;
       });
       var z = zones[cat.key] || { amber: [6], red: [8] };
       return {
         category: cat.label,
-        pct: ordersInWindow > 0 ? +(cnt / ordersInWindow * 100).toFixed(1) : null,
+        dashboardPct: frow[cat.key] || 0,
+        count: frow[cat.key + "_count"] || 0,
         recentPct: recO >= 30 ? +(recC / recO * 100).toFixed(1) : null,
         recentOrders: recO,
         priorPct: priO >= 30 ? +(priC / priO * 100).toFixed(1) : null,
@@ -1616,7 +1618,11 @@ export default function ComplaintDashboard() {
     var prev2O = (wk[latestDataWeek - 2] || 0) + (wk[latestDataWeek - 3] || 0);
     return {
       catStats: catStats,
-      ordersRamp: { last2wOrders: recent2O, prev2wOrders: prev2O, justScaled: recent2O >= 20 && recent2O >= 2.5 * Math.max(prev2O, 1) },
+      windows: {
+        dashboard: "orders W" + ordersWR[0] + "\u2013W" + ordersWR[1] + " (" + frow.orders + " orders) \u2014 the same numbers shown on the dashboard tiles",
+        recentTrend: latestCW != null ? "complaint weeks W" + (latestCW - 1) + "\u2013W" + latestCW + " over " + recO + " lag-corrected orders" : "n/a",
+      },
+      ordersRamp: { last2wOrders: recent2O, prev2wOrders: prev2O, justScaled: !!frow.scaleRisk || (recent2O >= 10 && recent2O >= 1.8 * Math.max(prev2O, 1)), firstScaleWeek: frow.firstScaleWeek },
       product: titleByKey[focusedProduct] || focusedProduct,
       sinceWeek: sinceWeek,
       lastAction: lastAction ? {
@@ -1627,10 +1633,10 @@ export default function ComplaintDashboard() {
       counts: counts,
       totalComplaints: rows.length,
       withText: texts.length,
-      orders: ordersInWindow,
+      orders: frow.orders,
       summaries: texts.slice(0, 40).map(function (c) { return { type: c.type, week: c.week, text: c.summary }; }),
     };
-  }, [focusedProduct, allComplaints, actionsByProduct, ordersByKey, titleByKey, zones, latestDataWeek]);
+  }, [focusedProduct, heatmapData, allComplaints, actionsByProduct, ordersByKey, titleByKey, zones, latestDataWeek, ordersWR]);
   // Data payloads for the floating widgets
   var reportData = useMemo(function () {
     var recentActions = [];
