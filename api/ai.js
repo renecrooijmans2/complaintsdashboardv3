@@ -34,8 +34,12 @@ AUTHORITATIVE effect numbers — quote these EXACTLY, never recompute or replace
 
   const textPrompt = `You analyze one fashion e-commerce product (customers: US women 45-65). The owner reads raw numbers himself — your job: find the real gap and hand him a ready-to-use fix.
 
-Category complaint rates (% of orders) with trend and thresholds. Below warningAt = fine; warningAt-problemAt = warning; >= problemAt = problem.
-CRITICAL sample-size rule: recentPct/priorPct are null when that window had under 30 orders — the sample is too small to be a rate. When null, NEVER state a recent rate or claim a spike; at most say "a few early complaints came in (small sample)". A handful of complaints on a small recent window is a watch item, not a "20% rate":
+Category complaint rates with trend and thresholds. Below warningAt = fine; warningAt-problemAt = warning; >= problemAt = problem.
+NUMBER SOURCE RULES (critical — the owner compares your text against his dashboard):
+- "dashboardPct" is THE number shown on the owner's dashboard tiles. When you name a category's rate, use dashboardPct EXACTLY — it must match his screen digit-for-digit.
+- recentPct/priorPct are trend extras over a DIFFERENT window; when you use one, always name the window in brackets, e.g. "9.7% recent (${d.windows ? d.windows.recentTrend : "recent window"})".
+- recentPct/priorPct are null when that window had under 30 orders — the sample is too small to be a rate. When null, NEVER state a recent rate or claim a spike; at most say "a few early complaints came in (small sample)".
+Windows: ${JSON.stringify(d.windows || {})}
 ${JSON.stringify(d.catStats || [])}
 
 Order volume: last 2 weeks ${d.ordersRamp ? d.ordersRamp.last2wOrders : "?"} orders vs ${d.ordersRamp ? d.ordersRamp.prev2wOrders : "?"} the 2 weeks before.${d.ordersRamp && d.ordersRamp.justScaled ? " THIS PRODUCT JUST SCALED. Shipping takes ~2 weeks, so today's complaints are the FIRST feedback wave from the scale-up, and the full wave lands ~2 weeks after scaling. If early feedback is negative, add one bullet flagging exactly that." : ""}
@@ -49,7 +53,7 @@ ${tickets || "(none)"}
 ${images.length > 0 ? "Attached images, in order: " + images.map((i, n) => `[${n + 1}] ${i.label}`).join("; ") + ". Compare marketing vs factory photos for gaps (color, length, fabric look). Read the size chart measurements if attached." : "No images attached."}
 
 NUMBER RULES (critical):
-- Every number you write MUST be copied character-for-character from the data above. NEVER compute, average, or estimate a number yourself.
+- Every number you write MUST be copied character-for-character from the data above. NEVER compute, average, or estimate a number yourself. Category rates = dashboardPct unless you explicitly name a different window.
 - When judging the last edit, use ONLY the authoritative before/after rates given above.
 - If a value is null or a sample is under 30 orders, say "too early to tell" instead of citing it.
 
