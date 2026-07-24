@@ -47,10 +47,10 @@ var ACTIONS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTebDK0L1
 var CONFIG_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTebDK0L1zu6vE8T7NGW6352-RzjHc4DHGfWH7YjADDGn0Z9J18K6GvlpmHCX6-EpjgZ8KjTD0J20Df/pub?gid=1331895582&single=true&output=csv";
 var STOPPED_ADS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTebDK0L1zu6vE8T7NGW6352-RzjHc4DHGfWH7YjADDGn0Z9J18K6GvlpmHCX6-EpjgZ8KjTD0J20Df/pub?gid=419605787&single=true&output=csv";
 
-// "Complaint Detail" tab — per-ticket summaries.
-// TODO(René): open the Complaint Detail tab, copy the gid from the URL, paste below.
-// Leave "" and the dashboard falls back to any summary column found in the per-store complaints tabs.
-var COMPLAINT_DETAIL_CSV_URL = "";
+// Google Apps Script Web App URL — enables logging Actions / Stopped Advertising
+// straight into the Google Sheet from the dashboard (with undo).
+// Setup: see apps-script/Code.gs + README. Leave "" to hide the buttons.
+var APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyPf4MYQO4r4NB9yCAa1S7zrMGCcvMCrCuEJGwJfZScPfmGCgKfahIW2ugh9MqDhr0/exec";
 
 // Google Apps Script Web App URL — enables logging Actions / Stopped Advertising
 // straight into the Google Sheet from the dashboard (with undo).
