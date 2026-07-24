@@ -1852,14 +1852,8 @@ export default function ComplaintDashboard() {
       // Current week is always partial → count latest data week + the week before it.
       var orders7d = latestDataWeek > 0 ? ((wk[latestDataWeek] || 0) + (wk[latestDataWeek - 1] || 0)) : null;
       var isStopped = !!stoppedAds[k];
-      // First week with real volume (>=20 orders, or a 3x jump to >=10)
-      var fsw = null;
-      var wNumsS = Object.keys(wk).map(Number).sort(function (x, y) { return x - y; });
-      for (var wi2 = 0; wi2 < wNumsS.length; wi2++) {
-        var w2 = wNumsS[wi2]; var v2 = wk[w2] || 0; var pv2 = wk[w2 - 1] || 0;
-        if (v2 >= 20 || (v2 >= 10 && v2 >= 3 * Math.max(pv2, 1))) { fsw = w2; break; }
-      }
-      var isNewArrival = fsw != null && fsw >= latestDataWeek - 2; // running ~3 weeks max
+      // New arrival = FIRST SALE ever within the last ~4 data weeks (firstWeek = earliest week with any orders)
+      var isNewArrival = firstWeek != null && firstWeek >= latestDataWeek - 3;
       var status = isStopped ? "Stopped"
                  : (orders7d != null && orders7d < INACTIVE_SALES_7D) ? "Inactive"
                  : editedRecently[k] ? "Edited"
@@ -2532,9 +2526,10 @@ export default function ComplaintDashboard() {
       {/* Amber's weekly workflow */}
       <div style={Object.assign({ background: N.bgC, border: "1px solid " + N.border, borderRadius: 6, padding: "10px 14px", display: "flex", flexDirection: "column", gap: 4 }, dimUI)}>
         <div style={{ fontSize: 10, fontWeight: 700, color: N.text, marginBottom: 2 }}>Weekly review {"\u2014"} every product, once a week.</div>
-        <div style={{ fontSize: 10, color: N.textS }}><span style={{ color: N.textT, fontWeight: 700 }}>1.</span> Work top to bottom: most orders first (default view). Open each product, read the AI analysis, act.</div>
-        <div style={{ fontSize: 10, color: N.textS }}><span style={{ color: N.textT, fontWeight: 700 }}>2.</span> Status {"\u2192"} Edited: is every edit working? Follow up on anything stuck (see the Last edit column).</div>
-        <div style={{ fontSize: 10, color: N.textS }}><span style={{ color: N.textT, fontWeight: 700 }}>3.</span> Sort Week Started, newest first: fix fresh products BEFORE they scale {"\u2014"} 1-2 early complaints is already a signal. Red tags first.</div>
+        <div style={{ fontSize: 10, color: N.textS }}><span style={{ color: N.textT, fontWeight: 700 }}>1.</span> Status {"\u2192"} <span style={{ fontWeight: 700, color: N.text }}>Active</span> first: top to bottom, most complaints first. Open each product, read the AI analysis, act.</div>
+        <div style={{ fontSize: 10, color: N.textS }}><span style={{ color: N.textT, fontWeight: 700 }}>2.</span> Status {"\u2192"} <span style={{ fontWeight: 700, color: N.text }}>New arrivals</span> second: top to bottom. Fix fresh products BEFORE they scale {"\u2014"} 1-2 early complaints is already a signal. Red tags first.</div>
+        <div style={{ fontSize: 10, color: N.textS }}><span style={{ color: N.textT, fontWeight: 700 }}>3.</span> Status {"\u2192"} <span style={{ fontWeight: 700, color: N.text }}>Edited</span> last: check in on the edits you made and anything you still need to follow up on (see the Last edit column).</div>
+        <div style={{ fontSize: 10, color: N.textS }}><span style={{ color: N.textT, fontWeight: 700 }}>4.</span> Do <span style={{ fontWeight: 700, color: N.text }}>ALL stores</span> {"\u2014"} switch store top left and repeat.</div>
       </div>
 
       {/* Table */}
