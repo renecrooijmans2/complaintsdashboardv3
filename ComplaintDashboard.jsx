@@ -1699,8 +1699,19 @@ export default function ComplaintDashboard() {
       var t0 = Date.now();
       var comps = [], ords = [], acts = [], fetched = false;
       var store = STORE_CSVS[selectedStore];
-      var grab = function (url) {
-        return url ? fetchT(url).then(function (r) { return r.text(); }).catch(function (e) { console.warn("[load] fetch failed:", String(url).slice(0, 60), e.message || e); return null; }) : Promise.resolve(null);
+      var grab = async function (url) {
+        if (!url) return null;
+        for (var att = 1; att <= 3; att++) {
+          try {
+            var r = await fetchT(url);
+            var txt = await r.text();
+            if (txt && txt.length > 0) return txt;
+          } catch (e) {
+            console.warn("[load] attempt " + att + "/3 failed:", String(url).slice(0, 60), e.message || e);
+          }
+          if (att < 3) await new Promise(function (res) { setTimeout(res, 1500 * att); });
+        }
+        return null;
       };
       // ALL CSVs in parallel — one round trip instead of seven sequential ones
       var res = await Promise.all([
@@ -1749,6 +1760,10 @@ export default function ComplaintDashboard() {
         }
       } catch (e) { /* no-op */ }
       if (store) setTitle(store.name);
+      var missing = [];
+      if (store && store.complaintsUrl && !cT) missing.push("complaints");
+      if (store && store.ordersUrl && !oT) missing.push("orders");
+      setLoadErr(missing.length > 0 ? "The " + missing.join(" + ") + " CSV failed to load after 3 attempts \u2014 Google's publish endpoint is briefly unavailable (common right after big sheet edits). Refresh in a minute; numbers shown may be incomplete until then." : "");
 
       if (!fetched || comps.length === 0) {
         var demo = genDemo();
@@ -2572,6 +2587,12 @@ export default function ComplaintDashboard() {
           );
         })}
       </div>
+
+      {loadErr && !loading && (
+        <div style={{ background: "rgba(255,115,105,0.08)", border: "1px solid rgba(255,115,105,0.3)", borderRadius: 6, padding: "8px 14px", fontSize: 11, color: N.red }}>
+          {loadErr}
+        </div>
+      )}
 
       {/* Amber's weekly workflow */}
       <div style={Object.assign({ background: N.bgC, border: "1px solid " + N.border, borderRadius: 6, padding: "10px 14px", display: "flex", flexDirection: "column", gap: 4 }, dimUI)}>
