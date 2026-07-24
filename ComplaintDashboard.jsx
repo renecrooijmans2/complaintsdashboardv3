@@ -48,7 +48,7 @@ var COMPLAINT_DETAIL_CSV_URL = "";
 // Google Apps Script Web App URL — enables logging Actions / Stopped Advertising
 // straight into the Google Sheet from the dashboard (with undo).
 // Setup: see apps-script/Code.gs + README. Leave "" to hide the buttons.
-var APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyPf4MYQO4r4NB9yCAa1S7zrMGCcvMCrCuEJGwJfZScPfmGCgKfahIW2ugh9MqDhr0/exec";
+var APPS_SCRIPT_URL = "";
 
 /* ── THEME ── */
 var N = {
@@ -602,9 +602,9 @@ function ActionHistory(props) {
           deltaColor = a.deltaPP == null ? N.textT : (a.deltaPP < -0.5 ? "rgba(52,211,153,0.65)" : (a.deltaPP > 0.5 ? "rgba(255,115,105,0.65)" : N.textS));
         }
         var confTag = null;
-        if (confidence === "low") confTag = { text: "Low confidence \u00B7 " + a.afterOrders + " orders after", color: N.orange };
-        else if (confidence === "preliminary") confTag = { text: "Preliminary \u00B7 " + a.afterOrders + "/" + MIN_CONFIDENT_ORDERS + " orders", color: N.orange };
-        else if (confidence === "confident") confTag = { text: "Confident", color: N.green };
+        if (confidence === "low") confTag = { text: "Low confidence \u00B7 " + a.afterOrders + " orders after", color: N.textS };
+        else if (confidence === "preliminary") confTag = { text: "Preliminary \u00B7 " + a.afterOrders + "/" + MIN_CONFIDENT_ORDERS + " orders", color: N.textS };
+        else if (confidence === "confident") confTag = { text: "Confident", color: N.textS };
         var canUndo = onUndo && a.uuid && a.uuid.indexOf("dash-") === 0;
         return (
           <div key={i} style={{ display: "flex", flexDirection: "column", gap: 4, padding: "8px 0", borderTop: i === 0 ? "none" : "1px solid " + N.border, opacity: a.pending ? 0.6 : 1 }}>
@@ -675,22 +675,36 @@ function ActionHistory(props) {
    ══════════════════════════════════════════ */
 function CategoryGrid(props) {
   var row = props.row;
+  var total = 0;
+  CATEGORIES.forEach(function (c) { total += row[c.key + "_count"] || 0; });
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(" + CATEGORIES.length + ", minmax(0, 1fr))", gap: 6 }}>
-      {CATEGORIES.map(function (c) {
-        var count = row[c.key + "_count"] || 0;
-        var pct = row[c.key] || 0;
-        var z = props.zones[c.key];
-        return (
-          <div key={c.key} style={{ background: getHeatBg(pct, z), border: "1px solid " + N.border, borderRadius: 5, padding: "7px 9px", textAlign: "center" }}>
-            <div style={{ fontSize: 9, color: N.textS, marginBottom: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.label}</div>
-            <div style={{ fontSize: 13, fontWeight: pct >= z.amber[0] ? 700 : 600, color: pct > 0 ? getZoneColor(pct, z) : N.textT, fontVariantNumeric: "tabular-nums" }}>
-              {pct > 0 ? pct.toFixed(1) + "%" : "\u2014"}
+    <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+      <div style={{ display: "flex", height: 20, width: "100%", background: "rgba(255,255,255,0.05)", overflow: "hidden" }}>
+        {total > 0 && CATEGORIES.map(function (c) {
+          var count = row[c.key + "_count"] || 0;
+          if (count === 0) return null;
+          return (
+            <div key={c.key} title={c.label + ": " + count} style={{ width: (count / total * 100) + "%", background: c.color, height: "100%" }} />
+          );
+        })}
+      </div>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        {CATEGORIES.map(function (c) {
+          var count = row[c.key + "_count"] || 0;
+          var pct = row[c.key] || 0;
+          var z = props.zones[c.key];
+          var hot = pct >= z.amber[0];
+          return (
+            <div key={c.key} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10 }}>
+              <span style={{ width: 9, height: 9, background: c.color, display: "inline-block" }} />
+              <span style={{ color: N.textS }}>{c.label}</span>
+              <span style={{ color: hot ? getZoneColor(pct, z) : N.textS, fontWeight: hot ? 700 : 500, fontVariantNumeric: "tabular-nums" }}>
+                {count}{pct > 0 ? " \u00B7 " + fmtPct(pct) : ""}
+              </span>
             </div>
-            <div style={{ fontSize: 8, color: N.textT }}>{count > 0 ? count + "x" : ""}</div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -700,7 +714,7 @@ function AIPanel(props) {
   var d = props.aiData;
   var st = useState({ loading: false, data: null, error: "" });
   var ai = st[0]; var setAi = st[1];
-  var cacheKey = d ? "ai-" + props.storeName + "-" + props.rowKey + "-" + d.totalComplaints + "-" + (d.sinceWeek || 0) : null;
+  var cacheKey = d ? "ai2-" + props.storeName + "-" + props.rowKey + "-" + d.totalComplaints + "-" + (d.sinceWeek || 0) : null;
 
   function run(force) {
     if (!d) return;
@@ -770,10 +784,16 @@ function FocusPanel(props) {
   var stSN = useState(""); var stopNote = stSN[0]; var setStopNote = stSN[1];
   var stSF = useState(false); var showStopForm = stSF[0]; var setShowStopForm = stSF[1];
   var stAll = useState(false); var showAll = stAll[0]; var setShowAll = stAll[1];
+  var stCatF = useState("all"); var catFilter = stCatF[0]; var setCatFilter = stCatF[1];
 
   var quotes = props.quotes || [];
   var contrib = props.contrib;
   var writeEnabled = !!APPS_SCRIPT_URL;
+
+  useEffect(function () {
+    var el = document.getElementById("focus-panel-root");
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [row.key]);
 
   // Auto-lookup product URL + first image via the storefront (serverless proxy).
   var stP = useState(null); var prod = stP[0]; var setProd = stP[1];
@@ -791,13 +811,19 @@ function FocusPanel(props) {
 
   // Factory QC photos + size chart from the Notion backend DB.
   var stQC = useState(null); var qc = stQC[0]; var setQC = stQC[1];
+  var stQCE = useState(""); var qcErr = stQCE[0]; var setQCErr = stQCE[1];
   useEffect(function () {
-    setQC(null);
+    setQC(null); setQCErr("");
     var alive = true;
     fetch(NOTION_QC_PATH + "?pid=" + encodeURIComponent(row.key) + "&store=" + encodeURIComponent(props.storeName || ""))
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (j) { if (alive && j && j.found) setQC(j); })
-      .catch(function () { /* dev mode / not found — fine */ });
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (x) {
+        if (!alive) return;
+        if (x.ok && x.j && x.j.found) setQC(x.j);
+        else if (x.j && x.j.error) { setQCErr(x.j.error); console.warn("[notion-qc]", x.j.error); }
+        else if (x.ok && x.j && x.j.found === false) { setQCErr("no Notion row matches ID " + row.key); console.warn("[notion-qc] no match for", row.key); }
+      })
+      .catch(function (e) { if (alive) console.warn("[notion-qc] unreachable (local dev?)", e); });
     return function () { alive = false; };
   }, [row.key, props.storeName]);
 
@@ -826,11 +852,15 @@ function FocusPanel(props) {
   };
 
   return (
-    <div style={{ background: N.bg, border: "1px solid " + N.border, borderRadius: 8, padding: 16, display: "flex", flexDirection: "column", gap: 14 }}>
+    <div id="focus-panel-root" style={{ background: N.bg, border: "1px solid " + N.border, borderRadius: 8, padding: 16, display: "flex", flexDirection: "column", gap: 14, position: "relative", zIndex: 40 }}>
       <div style={{ fontSize: 14, fontWeight: 700, color: N.text, display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-        {row.product}
+        <span style={{ flex: 1 }}>{row.product}</span>
         {qc && qc.notionUrl && <a href={qc.notionUrl} target="_blank" rel="noreferrer" style={{ fontSize: 10, fontWeight: 500, color: N.textS, textDecoration: "none" }}>Notion {"\u2197"}</a>}
+        {props.onClose && (
+          <button onClick={props.onClose} style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 4, cursor: "pointer", fontFamily: "inherit" }}>Exit (Esc)</button>
+        )}
       </div>
+      {qcErr && <div style={{ fontSize: 9, color: N.textT, marginTop: -8 }}>Notion: {qcErr}</div>}
       {/* Top row: photo + key stats + AI analysis */}
       <div style={{ display: "grid", gridTemplateColumns: (imgSrc || (qc && qc.qcImages && qc.qcImages.length > 0)) ? "140px 1fr 1fr" : "1fr 1fr", gap: 16, alignItems: "start" }}>
         {(imgSrc || (qc && qc.qcImages && qc.qcImages.length > 0)) && (
@@ -963,10 +993,19 @@ function FocusPanel(props) {
 
       {/* All complaints, 1 row each */}
       <div style={{ borderTop: "1px solid " + N.border, paddingTop: 10 }}>
-        <button onClick={function () { setShowAll(!showAll); }}
-          style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 10, fontWeight: 600, padding: "4px 12px", borderRadius: 4, cursor: "pointer", fontFamily: "inherit" }}>
-          {showAll ? "Hide" : "Show"} all complaints ({(props.allRows || []).length}) {showAll ? "\u25B4" : "\u25BE"}
-        </button>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button onClick={function () { setShowAll(!showAll); }}
+            style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 10, fontWeight: 600, padding: "4px 12px", borderRadius: 4, cursor: "pointer", fontFamily: "inherit" }}>
+            {showAll ? "Hide" : "Show"} all complaints ({(props.allRows || []).length}) {showAll ? "\u25B4" : "\u25BE"}
+          </button>
+          {showAll && (
+            <select value={catFilter} onChange={function (e) { setCatFilter(e.target.value); }}
+              style={{ background: N.bg, border: "1px solid " + N.border, borderRadius: 4, color: N.textS, fontSize: 10, fontFamily: "inherit", padding: "4px 8px", outline: "none" }}>
+              <option value="all">All categories</option>
+              {CATEGORIES.map(function (c) { return <option key={c.key} value={c.key}>{c.label}</option>; })}
+            </select>
+          )}
+        </div>
         {showAll && (
           <div style={{ marginTop: 8, maxHeight: 260, overflowY: "auto", border: "1px solid " + N.border, borderRadius: 6 }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10.5 }}>
@@ -978,7 +1017,7 @@ function FocusPanel(props) {
                 </tr>
               </thead>
               <tbody>
-                {(props.allRows || []).map(function (c, i) {
+                {(props.allRows || []).filter(function (c) { return catFilter === "all" || c.type === catFilter; }).map(function (c, i) {
                   var cat = CATEGORIES.find(function (x) { return x.key === c.type; });
                   return (
                     <tr key={i}>
@@ -1069,7 +1108,7 @@ function FloatingWidgets(props) {
             )}
             {msgs.map(function (m, i) {
               return (
-                <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "88%", background: m.role === "user" ? "rgba(82,156,202,0.15)" : N.bg, border: "1px solid " + N.border, borderRadius: 6, padding: "7px 10px", fontSize: 11, color: N.text, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
+                <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "88%", background: m.role === "user" ? "rgba(82,156,202,0.15)" : N.bg, border: "1px solid " + N.border, borderRadius: 6, padding: "5px 7px", fontSize: 11, color: N.text, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
                   {m.content}
                 </div>
               );
@@ -1502,7 +1541,35 @@ export default function ComplaintDashboard() {
     Object.keys(wk).forEach(function (w) {
       if (sinceWeek == null || parseInt(w) >= sinceWeek - LAG_WEEKS) ordersInWindow += wk[w];
     });
+    // Per-category RATES + recent-vs-prior trend (what the AI should reason about)
+    var cWeeks = rows.map(function (c) { return c.week; }).filter(function (w) { return w != null; });
+    var latestCW = cWeeks.length > 0 ? Math.max.apply(null, cWeeks) : null;
+    var ordersLagged = function (startW, endW) {
+      var t = 0;
+      for (var w = startW - LAG_WEEKS; w <= endW - LAG_WEEKS; w++) { if (w >= 1) t += wk[w] || 0; }
+      return t;
+    };
+    var winStart = sinceWeek != null ? sinceWeek : (cWeeks.length > 0 ? Math.min.apply(null, cWeeks) : 1);
+    var recO = latestCW != null ? ordersLagged(latestCW - 1, latestCW) : 0;
+    var priO = latestCW != null ? ordersLagged(winStart, latestCW - 2) : 0;
+    var catStats = CATEGORIES.map(function (cat) {
+      var cnt = counts[cat.key] || 0;
+      var recC = 0, priC = 0;
+      rows.forEach(function (c) {
+        if (c.type !== cat.key || c.week == null) return;
+        if (latestCW != null && c.week >= latestCW - 1) recC++; else priC++;
+      });
+      var z = zones[cat.key] || { amber: [6], red: [8] };
+      return {
+        category: cat.label,
+        pct: ordersInWindow > 0 ? +(cnt / ordersInWindow * 100).toFixed(1) : null,
+        recentPct: recO > 0 ? +(recC / recO * 100).toFixed(1) : null,
+        priorPct: priO > 0 ? +(priC / priO * 100).toFixed(1) : null,
+        warningAt: z.amber[0], problemAt: z.red[0],
+      };
+    });
     return {
+      catStats: catStats,
       product: titleByKey[focusedProduct] || focusedProduct,
       sinceWeek: sinceWeek,
       lastAction: lastAction ? {
@@ -1516,7 +1583,7 @@ export default function ComplaintDashboard() {
       orders: ordersInWindow,
       summaries: texts.slice(0, 40).map(function (c) { return { type: c.type, week: c.week, text: c.summary }; }),
     };
-  }, [focusedProduct, allComplaints, actionsByProduct, ordersByKey, titleByKey]);
+  }, [focusedProduct, allComplaints, actionsByProduct, ordersByKey, titleByKey, zones]);
   // Data payloads for the floating widgets
   var reportData = useMemo(function () {
     var recentActions = [];
@@ -1647,6 +1714,12 @@ export default function ComplaintDashboard() {
     };
   }
 
+  useEffect(function () {
+    function onKey(e) { if (e.key === "Escape") setFocusedProduct(null); }
+    window.addEventListener("keydown", onKey);
+    return function () { window.removeEventListener("keydown", onKey); };
+  }, []);
+
   if (loading) {
     return (
       <div style={{ minHeight: "100vh", background: N.bg, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16, fontFamily: FONT }}>
@@ -1659,9 +1732,6 @@ export default function ComplaintDashboard() {
 
   var totalProducts = productData.length;
   var visibleProducts = filteredProductData.length;
-  var hoveredActions = hoveredProduct ? (actionsByProduct[hoveredProduct] || []) : [];
-  var hoveredTitle = hoveredProduct ? (titleByKey[hoveredProduct] || (stoppedAds[hoveredProduct] && stoppedAds[hoveredProduct].title) || hoveredProduct) : "";
-  var showHoverPanel = hoveredProduct && !focusedProduct;
 
   var sortableHeader = function (label, key) {
     var active = sortBy === key;
@@ -1802,7 +1872,7 @@ export default function ComplaintDashboard() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, fontVariantNumeric: "tabular-nums" }}>
             <thead>
               <tr>
-                <th style={{ background: N.bgS, padding: "8px 6px", position: "sticky", top: 0, width: 36 }}></th>
+                <th style={{ background: N.bgS, padding: "6px 4px", position: "sticky", top: 0, width: 28 }}></th>
                 {[
                   { label: sortableHeader("Week Started", "newest"), align: "left" },
                   { label: "Status", align: "left" },
@@ -1812,7 +1882,7 @@ export default function ComplaintDashboard() {
                   { label: "Signal", align: "left" },
                 ].map(function (h, i) {
                   return (
-                    <th key={i} style={{ background: N.bgS, color: N.textS, fontWeight: 600, fontSize: 9, letterSpacing: "0.02em", padding: "8px 10px", textAlign: h.align, whiteSpace: "nowrap", position: "sticky", top: 0 }}>
+                    <th key={i} style={{ background: N.bgS, color: N.textS, fontWeight: 600, fontSize: 9, letterSpacing: "0.02em", padding: "6px 7px", textAlign: h.align, whiteSpace: "nowrap", position: "sticky", top: 0 }}>
                       {h.label}
                     </th>
                   );
@@ -1848,31 +1918,31 @@ export default function ComplaintDashboard() {
                       transition: "opacity 0.2s, filter 0.2s",
                     }}
                   >
-                    <td style={{ padding: "0", textAlign: "center", borderBottom: "1px solid " + N.border, width: 36 }}>
+                    <td style={{ padding: "0", textAlign: "center", borderBottom: "1px solid " + N.border, width: 28 }}>
                       <label style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", padding: "8px 0", cursor: "pointer" }} onClick={function (e) { e.stopPropagation(); }}>
                         <input type="checkbox" checked={isChecked} onChange={function () { toggleChecked(row.key); }}
                           style={{ width: 14, height: 14, accentColor: N.green, cursor: "pointer" }} />
                       </label>
                     </td>
-                    <td style={{ padding: "7px 10px", textAlign: "left", color: N.textS, borderBottom: "1px solid " + N.border, whiteSpace: "nowrap" }}>
+                    <td style={{ padding: "5px 7px", textAlign: "left", color: N.textS, borderBottom: "1px solid " + N.border, whiteSpace: "nowrap" }}>
                       {row.firstWeek != null ? "W" + row.firstWeek : "\u2014"}
                     </td>
-                    <td style={{ padding: "7px 10px", textAlign: "left", borderBottom: "1px solid " + N.border }}>
+                    <td style={{ padding: "5px 7px", textAlign: "left", borderBottom: "1px solid " + N.border }}>
                       <StatusChip status={row.status} />
                     </td>
-                    <td style={{ padding: "7px 10px", textAlign: "left", color: row.orders7d != null && row.orders7d < INACTIVE_SALES_7D ? N.textT : N.textS, borderBottom: "1px solid " + N.border }}>
+                    <td style={{ padding: "5px 7px", textAlign: "left", color: row.orders7d != null && row.orders7d < INACTIVE_SALES_7D ? N.textT : N.textS, borderBottom: "1px solid " + N.border }}>
                       {row.orders7d != null ? row.orders7d.toLocaleString() : "\u2014"}
                     </td>
-                    <td style={{ padding: "7px 10px", textAlign: "left", fontWeight: 700, fontSize: 12, borderBottom: "1px solid " + N.border, color: row.pct >= KILL_TOTAL_THRESHOLD ? N.red : N.text, background: row.pct >= KILL_TOTAL_THRESHOLD ? "rgba(255,115,105,0.12)" : "transparent" }}>
+                    <td style={{ padding: "5px 7px", textAlign: "left", fontWeight: 700, fontSize: 12, borderBottom: "1px solid " + N.border, color: row.pct >= KILL_TOTAL_THRESHOLD ? N.red : N.text, background: row.pct >= KILL_TOTAL_THRESHOLD ? "rgba(255,115,105,0.12)" : "transparent" }}>
                       {fmtPct(row.pct)}
                     </td>
                     <td
                       onClick={function () { setFocusedProduct(isFocused ? null : row.key); setHoveredProduct(null); }}
                       title={isFocused ? "Click to exit focus" : "Click to focus this product"}
-                      style={{ padding: "7px 10px", textAlign: "left", color: N.text, fontWeight: 500, borderBottom: "1px solid " + N.border, borderLeft: hasAction ? "3px solid " + N.blue : "3px solid transparent", maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: isChecked ? "line-through" : "none", cursor: "pointer" }}>
+                      style={{ padding: "5px 7px", textAlign: "left", color: N.text, fontWeight: 500, borderBottom: "1px solid " + N.border, maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: isChecked ? "line-through" : "none", cursor: "pointer" }}>
                       <span style={{ color: isStopped ? N.textS : N.text, borderBottom: "1px dotted rgba(255,255,255,0.2)" }}>{row.product}</span>
                                           </td>
-                    <td style={{ padding: "7px 10px", textAlign: "left", borderBottom: "1px solid " + N.border, whiteSpace: "nowrap" }}>
+                    <td style={{ padding: "5px 7px", textAlign: "left", borderBottom: "1px solid " + N.border, whiteSpace: "nowrap" }}>
                       {row.killSignal ? (
                         <span title={(row.killSignal.tier === "auto" ? "AUTO KILL \u2014 " : "DEBATE \u2014 ") + row.killSignal.reasons.join(", ")}
                           style={{ fontSize: 9, fontWeight: 700, color: N.textS, background: "rgba(255,255,255,0.06)", border: "1px solid " + N.border, padding: "2px 7px", borderRadius: 3, letterSpacing: "0.02em" }}>
@@ -1925,44 +1995,14 @@ export default function ComplaintDashboard() {
       </div>
 
       {/* Footer */}
-      <div style={{ padding: "4px 0", borderTop: "1px solid " + N.border, display: "flex", justifyContent: "space-between", fontSize: 9, color: N.textT, marginBottom: showHoverPanel ? 180 : 0, transition: "margin-bottom 0.2s" }}>
+      <div style={{ padding: "4px 0", borderTop: "1px solid " + N.border, display: "flex", justifyContent: "space-between", fontSize: 9, color: N.textT, marginBottom: 0 }}>
         <span>Complaint Tracker {"\u2014"} {title}</span>
         <span>{visibleProducts}/{totalProducts} products {"\u00B7"} {Object.keys(stoppedAds).length} stopped {"\u00B7"} Complaints W{weekRange[0]}{"\u2013"}W{weekRange[1]} vs Orders W{ordersWR[0]}{"\u2013"}W{ordersWR[1]} {"\u00B7"} 14d lag {"\u00B7"} Orders 14d = W{latestDataWeek - 1}{"\u2013"}W{latestDataWeek} {"\u00B7"} Min {minSales} sales {"\u00B7"} Margin data: {Object.keys(contribData).length} products{Object.keys(contribData).length === 0 ? " \u2014 check contribUrl gid (README)" : ""}</span>
       </div>
 
-      {/* Sticky hover panel — quick glance only; disabled while in focus mode */}
-      {showHoverPanel && (
-        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "rgba(37, 37, 37, 0.98)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", borderTop: "1px solid rgba(82,156,202,0.3)", boxShadow: "0 -8px 24px rgba(0,0,0,0.4)", padding: "12px 18px", zIndex: 1000, maxHeight: "40vh", overflowY: "auto", fontFamily: FONT, color: N.text }}>
-          {stoppedAds[hoveredProduct] && (
-            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: "rgba(255,115,105,0.08)", border: "1px solid rgba(255,115,105,0.25)", borderRadius: 4, marginBottom: hoveredActions.length > 0 ? 10 : 0, fontSize: 11 }}>
-              <span style={{ color: N.red, fontWeight: 700, textTransform: "uppercase", fontSize: 10, letterSpacing: "0.05em" }}>Advertising Stopped</span>
-              {stoppedAds[hoveredProduct].stoppedDate && (
-                <span style={{ color: N.textS, fontSize: 10 }}>
-                  <span style={{ color: N.textT }}>since</span> {stoppedAds[hoveredProduct].stoppedDate}
-                </span>
-              )}
-              {stoppedAds[hoveredProduct].note && (
-                <span style={{ color: N.textS, fontSize: 10, fontStyle: "italic" }}>
-                  {"\u00B7"} {stoppedAds[hoveredProduct].note}
-                </span>
-              )}
-            </div>
-          )}
-          {hoveredActions.length > 0 ? (
-            <>
-              <div style={{ fontSize: 9, fontWeight: 600, color: N.blue, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-                Action history {"\u2014"} <span style={{ color: N.text }}>{hoveredTitle}</span>
-              </div>
-              <ActionHistory items={hoveredActions} />
-            </>
-          ) : !stoppedAds[hoveredProduct] && (
-            <div style={{ fontSize: 11, color: N.textS, padding: "4px 0", display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ color: N.textT, fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}>{hoveredTitle}</span>
-              <span style={{ color: N.textT }}>{"\u00B7"}</span>
-              <span style={{ color: N.textT }}>No actions logged for this product. Click the title to open the focus view.</span>
-            </div>
-          )}
-        </div>
+      {focusedProduct && (
+        <div onClick={function () { setFocusedProduct(null); }}
+          style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "#000", zIndex: 30 }} />
       )}
 
       <FloatingWidgets storeName={STORE_CSVS[selectedStore].name} chatContext={chatContext} reportData={reportData} />
