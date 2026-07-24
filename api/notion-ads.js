@@ -22,7 +22,7 @@ export default async function handler(req, res) {
   const prop = STORE_URL_PROP[store];
   if (!handle || !prop) return res.status(400).json({ error: "handle and valid store required" });
 
-  const body = JSON.stringify({ filter: { property: prop, url: { contains: String(handle) } }, page_size: 1 });
+  const body = JSON.stringify({ filter: { property: prop, url: { contains: String(handle) } }, page_size: 10 });
   const call = (url, version) =>
     fetch(url, { method: "POST", headers: { Authorization: `Bearer ${key}`, "Notion-Version": version, "Content-Type": "application/json" }, body });
 
@@ -32,7 +32,13 @@ export default async function handler(req, res) {
       let j = await r.json();
       if (!r.ok) { r = await call(`https://api.notion.com/v1/databases/${src.db}/query`, "2022-06-28"); j = await r.json(); }
       if (!r.ok) continue;
-      const page = (j.results || [])[0];
+      // "contains" can match the wrong row (short handles are substrings of longer ones).
+      // Verify: the row's URL must contain EXACTLY /products/<handle> as a full path segment.
+      const want = ("/products/" + String(handle)).toLowerCase();
+      const page = (j.results || []).find((pg) => {
+        const u = String(pg.properties?.[prop]?.url || "").toLowerCase().split("?")[0].replace(/\/$/, "");
+        return u.endsWith(want);
+      });
       if (!page) continue;
       const p = page.properties || {};
       res.setHeader("Cache-Control", "s-maxage=1200");
