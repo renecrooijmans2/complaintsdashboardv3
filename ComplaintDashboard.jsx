@@ -48,7 +48,7 @@ var COMPLAINT_DETAIL_CSV_URL = "";
 // Google Apps Script Web App URL — enables logging Actions / Stopped Advertising
 // straight into the Google Sheet from the dashboard (with undo).
 // Setup: see apps-script/Code.gs + README. Leave "" to hide the buttons.
-var APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyPf4MYQO4r4NB9yCAa1S7zrMGCcvMCrCuEJGwJfZScPfmGCgKfahIW2ugh9MqDhr0/exec";
+var APPS_SCRIPT_URL = "";
 
 /* ── THEME ── */
 var N = {
@@ -608,10 +608,10 @@ function ActionHistory(props) {
         var canUndo = onUndo && a.uuid && a.uuid.indexOf("dash-") === 0;
         return (
           <div key={i} style={{ display: "flex", flexDirection: "column", gap: 4, padding: "8px 0", borderTop: i === 0 ? "none" : "1px solid " + N.border, opacity: a.pending ? 0.6 : 1 }}>
-            <div style={{ display: "flex", gap: 10, alignItems: "baseline", fontSize: 12, flexWrap: "wrap" }}>
-              <span style={{ color: N.blue, fontWeight: 700, fontSize: 11, minWidth: 32 }}>W{a.week}</span>
-              <span style={{ fontSize: 10, color: N.textS, background: "rgba(82,156,202,0.12)", padding: "2px 7px", borderRadius: 3, whiteSpace: "nowrap" }}>{cat ? cat.label : a.category}</span>
-              <span style={{ color: N.text, fontWeight: 600, flex: 1, minWidth: 160, fontSize: 13 }}>{a.action}</span>
+            <div style={{ display: "flex", gap: 10, alignItems: "baseline", fontSize: 11.5, flexWrap: "wrap" }}>
+              <span style={{ color: N.blue, fontWeight: 700, fontSize: 11.5, minWidth: 32 }}>W{a.week}</span>
+              <span style={{ fontSize: 11.5, color: N.textS, background: "rgba(82,156,202,0.12)", padding: "2px 7px", borderRadius: 3, whiteSpace: "nowrap" }}>{cat ? cat.label : a.category}</span>
+              <span style={{ color: N.text, fontWeight: 600, flex: 1, minWidth: 160, fontSize: 11.5 }}>{a.action}</span>
               {a.date && <span style={{ fontSize: 9, color: N.textT }}>{a.date}</span>}
               {a.status && <span style={{ fontSize: 9, color: a.status === "Active" || a.status === "Confirmed" ? N.green : N.orange, background: "rgba(255,255,255,0.05)", padding: "2px 6px", borderRadius: 3 }}>{a.status}</span>}
               {a.pending && <span style={{ fontSize: 9, color: N.orange }}>{"saving\u2026"}</span>}
@@ -623,21 +623,21 @@ function ActionHistory(props) {
               )}
             </div>
             {a.expectedEffect && (
-              <div style={{ fontSize: 10, color: N.textS, paddingLeft: 42 }}>
+              <div style={{ fontSize: 11.5, color: N.textS, paddingLeft: 42 }}>
                 <span style={{ color: N.textT }}>Expected:</span> {a.expectedEffect}
               </div>
             )}
             {a.notes && (
-              <div style={{ fontSize: 10, color: N.textS, paddingLeft: 42 }}>
+              <div style={{ fontSize: 11.5, color: N.textS, paddingLeft: 42 }}>
                 <span style={{ color: N.textT }}>Notes:</span> {a.notes}
               </div>
             )}
-            <div style={{ display: "flex", gap: 16, alignItems: "center", paddingLeft: 42, fontSize: 12, fontVariantNumeric: "tabular-nums", marginTop: 4, flexWrap: "wrap", background: "rgba(255,255,255,0.03)", borderRadius: 5, padding: "7px 12px 7px 12px" }}>
+            <div style={{ display: "flex", gap: 16, alignItems: "center", paddingLeft: 42, fontSize: 11.5, fontVariantNumeric: "tabular-nums", marginTop: 4, flexWrap: "wrap", background: "rgba(255,255,255,0.03)", borderRadius: 5, padding: "7px 12px 7px 12px" }}>
               {a.beforeOrders > 0 ? (
                 <div>
-                  <span style={{ color: N.textS, fontSize: 11, marginRight: 6 }}>Before (W{a.beforeWindow[0]}{"\u2013"}{a.beforeWindow[1]}):</span>
-                  <span style={{ color: N.text, fontWeight: 700, fontSize: 13 }}>{fmtPct(a.beforePct)}</span>
-                  <span style={{ color: N.textT, marginLeft: 5, fontSize: 10 }}>{a.beforeComplaints} complaints / {a.beforeOrders} orders</span>
+                  <span style={{ color: N.textS, fontSize: 11.5, marginRight: 6 }}>Before (W{a.beforeWindow[0]}{"\u2013"}{a.beforeWindow[1]}):</span>
+                  <span style={{ color: N.text, fontWeight: 700, fontSize: 11.5 }}>{fmtPct(a.beforePct)}</span>
+                  <span style={{ color: N.textT, marginLeft: 5, fontSize: 11.5 }}>{a.beforeComplaints} complaints / {a.beforeOrders} orders</span>
                 </div>
               ) : (
                 <span style={{ color: N.textT, fontStyle: "italic" }}>No baseline (0 orders before)</span>
@@ -645,15 +645,15 @@ function ActionHistory(props) {
               <span style={{ color: N.textS, fontSize: 14 }}>{"\u2192"}</span>
               {a.afterOrders > 0 ? (
                 <div>
-                  <span style={{ color: N.textS, fontSize: 11, marginRight: 6 }}>After (W{a.afterWindow[0]}{"\u2013"}{a.afterWindow[1]}):</span>
-                  <span style={{ color: N.text, fontWeight: 700, fontSize: 13 }}>{fmtPct(a.afterPct)}</span>
-                  <span style={{ color: N.textT, marginLeft: 5, fontSize: 10 }}>{a.afterComplaints} complaints / {a.afterOrders} orders</span>
+                  <span style={{ color: N.textS, fontSize: 11.5, marginRight: 6 }}>After (W{a.afterWindow[0]}{"\u2013"}{a.afterWindow[1]}):</span>
+                  <span style={{ color: N.text, fontWeight: 700, fontSize: 11.5 }}>{fmtPct(a.afterPct)}</span>
+                  <span style={{ color: N.textT, marginLeft: 5, fontSize: 11.5 }}>{a.afterComplaints} complaints / {a.afterOrders} orders</span>
                 </div>
               ) : (
                 <span style={{ color: N.textT, fontStyle: "italic" }}>No orders yet after the change</span>
               )}
               {hasBoth && (
-                <span style={{ color: deltaColor, fontWeight: 700, fontSize: 13 }}>
+                <span style={{ color: deltaColor, fontWeight: 700, fontSize: 11.5 }}>
                   {a.deltaPP < -0.5 ? "\u25BC better" : (a.deltaPP > 0.5 ? "\u25B2 worse" : "\u2248 same")} {fmtSignedPct(a.deltaPP)}
                 </span>
               )}
@@ -675,36 +675,22 @@ function ActionHistory(props) {
    ══════════════════════════════════════════ */
 function CategoryGrid(props) {
   var row = props.row;
-  var total = 0;
-  CATEGORIES.forEach(function (c) { total += row[c.key + "_count"] || 0; });
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-      <div style={{ display: "flex", height: 20, width: "100%", background: "rgba(255,255,255,0.05)", overflow: "hidden" }}>
-        {total > 0 && CATEGORIES.map(function (c) {
-          var count = row[c.key + "_count"] || 0;
-          if (count === 0) return null;
-          return (
-            <div key={c.key} title={c.label + ": " + count} style={{ width: (count / total * 100) + "%", background: c.color, height: "100%" }} />
-          );
-        })}
-      </div>
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-        {CATEGORIES.map(function (c) {
-          var count = row[c.key + "_count"] || 0;
-          var pct = row[c.key] || 0;
-          var z = props.zones[c.key];
-          var hot = pct >= z.amber[0];
-          return (
-            <div key={c.key} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10 }}>
-              <span style={{ width: 9, height: 9, background: c.color, display: "inline-block" }} />
-              <span style={{ color: N.textS }}>{c.label}</span>
-              <span style={{ color: hot ? getZoneColor(pct, z) : N.textS, fontWeight: hot ? 700 : 500, fontVariantNumeric: "tabular-nums" }}>
-                {count}{pct > 0 ? " \u00B7 " + fmtPct(pct) : ""}
-              </span>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(" + CATEGORIES.length + ", minmax(0, 1fr))", gap: 6 }}>
+      {CATEGORIES.map(function (c) {
+        var count = row[c.key + "_count"] || 0;
+        var pct = row[c.key] || 0;
+        var z = props.zones[c.key];
+        return (
+          <div key={c.key} style={{ background: getHeatBg(pct, z), border: "1px solid " + N.border, borderRadius: 5, padding: "7px 9px", textAlign: "center" }}>
+            <div style={{ fontSize: 9, color: N.textS, marginBottom: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.label}</div>
+            <div style={{ fontSize: 13, fontWeight: pct >= z.amber[0] ? 700 : 600, color: pct > 0 ? getZoneColor(pct, z) : N.textT, fontVariantNumeric: "tabular-nums" }}>
+              {pct > 0 ? pct.toFixed(1) + "%" : "\u2014"}
             </div>
-          );
-        })}
-      </div>
+            <div style={{ fontSize: 8, color: N.textT }}>{count > 0 ? count + "x" : ""}</div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -714,10 +700,10 @@ function AIPanel(props) {
   var d = props.aiData;
   var st = useState({ loading: false, data: null, error: "" });
   var ai = st[0]; var setAi = st[1];
-  var cacheKey = d ? "ai2-" + props.storeName + "-" + props.rowKey + "-" + d.totalComplaints + "-" + (d.sinceWeek || 0) : null;
+  var cacheKey = d ? "ai3-" + props.storeName + "-" + props.rowKey + "-" + d.totalComplaints + "-" + (d.sinceWeek || 0) : null;
 
   function run(force) {
-    if (!d) return;
+    if (!d || !props.ready) return;
     if (!force && cacheKey) {
       try {
         var c = window.localStorage.getItem(cacheKey);
@@ -728,7 +714,7 @@ function AIPanel(props) {
     fetch(AI_API_PATH, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(d),
+      body: JSON.stringify(Object.assign({}, d, { visuals: props.visuals || null })),
     }).then(function (r) {
       if (!r.ok) throw new Error("API " + r.status);
       return r.json();
@@ -741,7 +727,7 @@ function AIPanel(props) {
     });
   }
 
-  useEffect(function () { run(false); }, [props.rowKey]);
+  useEffect(function () { run(false); }, [props.rowKey, props.ready]);
 
   return (
     <div style={{ background: N.bg, border: "1px solid " + N.border, borderRadius: 6, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
@@ -765,6 +751,16 @@ function AIPanel(props) {
             <div style={{ fontSize: 10, fontWeight: 700, color: N.blue, marginBottom: 3 }}>Recommendation</div>
             <div style={{ fontSize: 11.5, color: N.text, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{ai.data.recommendation}</div>
           </div>
+          {ai.data.deliverable && (
+            <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid " + N.border, borderRadius: 5, padding: "8px 10px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: N.textS }}>Concrete fix</div>
+                <button onClick={function () { try { navigator.clipboard.writeText(ai.data.deliverable); } catch (e) { /* no-op */ } }}
+                  style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>Copy</button>
+              </div>
+              <div style={{ fontSize: 11, color: N.text, lineHeight: 1.55, whiteSpace: "pre-wrap", fontVariantNumeric: "tabular-nums" }}>{ai.data.deliverable}</div>
+            </div>
+          )}
           <div style={{ fontSize: 9, color: N.textT }}>
             Based on {d.totalComplaints} complaints ({d.withText} with ticket text) {"\u00B7"} {d.orders.toLocaleString()} orders in window
           </div>
@@ -790,21 +786,18 @@ function FocusPanel(props) {
   var contrib = props.contrib;
   var writeEnabled = !!APPS_SCRIPT_URL;
 
-  useEffect(function () {
-    var el = document.getElementById("focus-panel-root");
-    if (el && el.scrollIntoView) el.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [row.key]);
-
   // Auto-lookup product URL + first image via the storefront (serverless proxy).
   var stP = useState(null); var prod = stP[0]; var setProd = stP[1];
+  var stPD = useState(false); var prodDone = stPD[0]; var setProdDone = stPD[1];
   useEffect(function () {
-    setProd(null);
+    setProd(null); setProdDone(!props.storeDomain);
     if (!props.storeDomain) return;
     var alive = true;
     fetch(PRODUCT_LOOKUP_PATH + "?domain=" + encodeURIComponent(props.storeDomain) + "&q=" + encodeURIComponent(row.product))
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (j) { if (alive && j && j.url) setProd(j); })
-      .catch(function () { /* dev mode / lookup miss — fine */ });
+      .catch(function () { /* dev mode / lookup miss — fine */ })
+      .finally(function () { if (alive) setProdDone(true); });
     return function () { alive = false; };
   }, [row.key, props.storeDomain]);
   var imgSrc = (prod && prod.image) || props.image || "";
@@ -812,8 +805,9 @@ function FocusPanel(props) {
   // Factory QC photos + size chart from the Notion backend DB.
   var stQC = useState(null); var qc = stQC[0]; var setQC = stQC[1];
   var stQCE = useState(""); var qcErr = stQCE[0]; var setQCErr = stQCE[1];
+  var stQCD = useState(false); var qcDone = stQCD[0]; var setQCDone = stQCD[1];
   useEffect(function () {
-    setQC(null); setQCErr("");
+    setQC(null); setQCErr(""); setQCDone(false);
     var alive = true;
     fetch(NOTION_QC_PATH + "?pid=" + encodeURIComponent(row.key) + "&store=" + encodeURIComponent(props.storeName || ""))
       .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
@@ -823,7 +817,8 @@ function FocusPanel(props) {
         else if (x.j && x.j.error) { setQCErr(x.j.error); console.warn("[notion-qc]", x.j.error); }
         else if (x.ok && x.j && x.j.found === false) { setQCErr("no Notion row matches ID " + row.key); console.warn("[notion-qc] no match for", row.key); }
       })
-      .catch(function (e) { if (alive) console.warn("[notion-qc] unreachable (local dev?)", e); });
+      .catch(function (e) { if (alive) console.warn("[notion-qc] unreachable (local dev?)", e); })
+      .finally(function () { if (alive) setQCDone(true); });
     return function () { alive = false; };
   }, [row.key, props.storeName]);
 
@@ -852,7 +847,7 @@ function FocusPanel(props) {
   };
 
   return (
-    <div id="focus-panel-root" style={{ background: N.bg, border: "1px solid " + N.border, borderRadius: 8, padding: 16, display: "flex", flexDirection: "column", gap: 14, position: "relative", zIndex: 40 }}>
+    <div style={{ background: N.bg, border: "1px solid " + N.border, borderRadius: 8, padding: 16, display: "flex", flexDirection: "column", gap: 14, position: "relative", zIndex: 40 }}>
       <div style={{ fontSize: 14, fontWeight: 700, color: N.text, display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
         <span style={{ flex: 1 }}>{row.product}</span>
         {qc && qc.notionUrl && <a href={qc.notionUrl} target="_blank" rel="noreferrer" style={{ fontSize: 10, fontWeight: 500, color: N.textS, textDecoration: "none" }}>Notion {"\u2197"}</a>}
@@ -867,7 +862,7 @@ function FocusPanel(props) {
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {imgSrc && <img src={imgSrc} alt={row.product} style={{ width: 140, height: 140, objectFit: "cover", borderRadius: 6, border: "1px solid " + N.border, background: N.bg }} />}
             {prod && prod.url && (
-              <a href={prod.url} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: N.blue, textDecoration: "none", textAlign: "center" }}>View on site {"\u2197"}</a>
+              <a href={prod.url} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: N.textS, textDecoration: "none", textAlign: "center" }}>View on site {"\u2197"}</a>
             )}
             {qc && qc.qcImages && qc.qcImages.length > 0 && (
               <div>
@@ -886,8 +881,8 @@ function FocusPanel(props) {
             )}
             {qc && (qc.sizeChart || qc.updatedSizeChart) && (
               <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                {qc.sizeChart && <a href={qc.sizeChart} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: N.blue, textDecoration: "none" }}>Factory size chart {"\u2197"}</a>}
-                {qc.updatedSizeChart && <a href={qc.updatedSizeChart} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: N.blue, textDecoration: "none" }}>Updated size chart {"\u2197"}</a>}
+                {qc.sizeChart && <a href={qc.sizeChart} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: N.textS, textDecoration: "none" }}>Factory size chart {"\u2197"}</a>}
+                {qc.updatedSizeChart && <a href={qc.updatedSizeChart} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: N.textS, textDecoration: "none" }}>Updated size chart {"\u2197"}</a>}
               </div>
             )}
           </div>
@@ -923,9 +918,15 @@ function FocusPanel(props) {
           </div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
-          <AIPanel aiData={props.aiData} rowKey={row.key} storeName={props.storeName} />
+          <AIPanel aiData={props.aiData} rowKey={row.key} storeName={props.storeName}
+            ready={qcDone && prodDone}
+            visuals={{
+              marketing: imgSrc || null,
+              qcImages: qc && qc.qcImages ? qc.qcImages.slice(0, 2) : [],
+              sizeChart: qc ? (qc.updatedSizeChart || qc.sizeChart) : null,
+            }} />
           {!imgSrc && prod && prod.url && (
-            <a href={prod.url} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: N.blue, textDecoration: "none" }}>View on site {"\u2197"}</a>
+            <a href={prod.url} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: N.textS, textDecoration: "none" }}>View on site {"\u2197"}</a>
           )}
         </div>
       </div>
@@ -1178,9 +1179,9 @@ export default function ComplaintDashboard() {
 
   // NEW state
   var stFocus = useState(null); var focusedProduct = stFocus[0]; var setFocusedProduct = stFocus[1];
-  var stSort = useState("pct"); var sortBy = stSort[0]; var setSortBy = stSort[1];
+  var stSort = useState("orders7d"); var sortBy = stSort[0]; var setSortBy = stSort[1];
   var stDir = useState("desc"); var sortDir = stDir[0]; var setSortDir = stDir[1];
-  var stSf = useState("all"); var statusFilter = stSf[0]; var setStatusFilter = stSf[1];
+  var stSf = useState("active"); var statusFilter = stSf[0]; var setStatusFilter = stSf[1];
   var stContrib = useState({}); var contribData = stContrib[0]; var setContribData = stContrib[1];
   // Optimistic writes (appear instantly, survive until CSV reload confirms them)
   var stLA = useState([]); var localActions = stLA[0]; var setLocalActions = stLA[1];
@@ -1227,6 +1228,7 @@ export default function ComplaintDashboard() {
             var mT = await (await fetch(store.contribUrl)).text();
             var cm = parseContribCSV(mT);
             console.log("[contrib] parsed " + Object.keys(cm).length + " rows from margin CSV");
+            if (Object.keys(cm).length === 0) console.warn("[contrib] first 300 chars of CSV \u2014 paste this to debug:", mT.slice(0, 300));
             setContribData(cm);
           } else setContribData({});
         } catch (e) { setContribData({}); }
@@ -1563,8 +1565,10 @@ export default function ComplaintDashboard() {
       return {
         category: cat.label,
         pct: ordersInWindow > 0 ? +(cnt / ordersInWindow * 100).toFixed(1) : null,
-        recentPct: recO > 0 ? +(recC / recO * 100).toFixed(1) : null,
-        priorPct: priO > 0 ? +(priC / priO * 100).toFixed(1) : null,
+        recentPct: recO >= 10 ? +(recC / recO * 100).toFixed(1) : null,
+        recentOrders: recO,
+        priorPct: priO >= 10 ? +(priC / priO * 100).toFixed(1) : null,
+        priorOrders: priO,
         warningAt: z.amber[0], problemAt: z.red[0],
       };
     });
@@ -1748,6 +1752,7 @@ export default function ComplaintDashboard() {
   };
 
   var visibleColCount = 7;
+  var focusedRow = focusedProduct ? heatmapData.find(function (r) { return r.key === focusedProduct; }) : null;
   var dimUI = focusedProduct
     ? { filter: "blur(2.5px) brightness(0.45)", opacity: 0.55, pointerEvents: "none", userSelect: "none", transition: "filter 0.2s, opacity 0.2s" }
     : { transition: "filter 0.2s, opacity 0.2s" };
@@ -1869,20 +1874,20 @@ export default function ComplaintDashboard() {
         </div>
 
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, fontVariantNumeric: "tabular-nums" }}>
+          <table style={{ width: "100%", tableLayout: "fixed", borderCollapse: "collapse", fontSize: 11, fontVariantNumeric: "tabular-nums" }}>
             <thead>
               <tr>
                 <th style={{ background: N.bgS, padding: "6px 4px", position: "sticky", top: 0, width: 28 }}></th>
                 {[
-                  { label: sortableHeader("Week Started", "newest"), align: "left" },
-                  { label: "Status", align: "left" },
-                  { label: sortableHeader("Orders 14d", "orders7d"), align: "left" },
-                  { label: sortableHeader("Total %", "pct"), align: "left" },
+                  { label: sortableHeader("Week Started", "newest"), align: "left", w: 82 },
+                  { label: "Status", align: "left", w: 66 },
+                  { label: sortableHeader("Orders 14d", "orders7d"), align: "left", w: 74 },
+                  { label: sortableHeader("Total %", "pct"), align: "left", w: 58 },
                   { label: "Product", align: "left" },
-                  { label: "Signal", align: "left" },
+                  { label: "Signal", align: "left", w: 96 },
                 ].map(function (h, i) {
                   return (
-                    <th key={i} style={{ background: N.bgS, color: N.textS, fontWeight: 600, fontSize: 9, letterSpacing: "0.02em", padding: "6px 7px", textAlign: h.align, whiteSpace: "nowrap", position: "sticky", top: 0 }}>
+                    <th key={i} style={{ background: N.bgS, color: N.textS, fontWeight: 600, fontSize: 8, textTransform: "uppercase", letterSpacing: "0.03em", padding: "6px 7px", textAlign: h.align, whiteSpace: "nowrap", position: "sticky", top: 0, width: h.w || "auto" }}>
                       {h.label}
                     </th>
                   );
@@ -1939,7 +1944,7 @@ export default function ComplaintDashboard() {
                     <td
                       onClick={function () { setFocusedProduct(isFocused ? null : row.key); setHoveredProduct(null); }}
                       title={isFocused ? "Click to exit focus" : "Click to focus this product"}
-                      style={{ padding: "5px 7px", textAlign: "left", color: N.text, fontWeight: 500, borderBottom: "1px solid " + N.border, maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: isChecked ? "line-through" : "none", cursor: "pointer" }}>
+                      style={{ padding: "5px 7px", textAlign: "left", color: N.text, fontWeight: 500, borderBottom: "1px solid " + N.border, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: isChecked ? "line-through" : "none", cursor: "pointer" }}>
                       <span style={{ color: isStopped ? N.textS : N.text, borderBottom: "1px dotted rgba(255,255,255,0.2)" }}>{row.product}</span>
                                           </td>
                     <td style={{ padding: "5px 7px", textAlign: "left", borderBottom: "1px solid " + N.border, whiteSpace: "nowrap" }}>
@@ -1961,32 +1966,6 @@ export default function ComplaintDashboard() {
                     </td>
                   </tr>
                 ];
-                if (isFocused) {
-                  rowEls.push(
-                    <tr key={row.key + "-focus"}>
-                      <td colSpan={visibleColCount} style={{ padding: "8px 4px 16px 4px", borderBottom: "1px solid " + N.border }}>
-                        <FocusPanel
-                          row={row}
-                          image={row.image}
-                          zones={zones}
-                          quotes={focusQuotes}
-                          aiData={focusAI}
-                          allRows={allComplaints.filter(function (c) { return c.key === row.key; }).sort(function (a, b) { return (b.week || 0) - (a.week || 0); })}
-                          onClose={function () { setFocusedProduct(null); }}
-                          storeDomain={STORE_CSVS[selectedStore].domain || ""}
-                          storeName={STORE_CSVS[selectedStore].name}
-                          contrib={contribData[row.key]}
-                          stoppedInfo={stoppedInfo}
-                          actionItems={rA}
-                          onLogAction={makeLogAction(row)}
-                          onStopAds={makeStopAds(row)}
-                          onUndoAction={undoAction}
-                          onUndoStop={makeUndoStop(row)}
-                        />
-                      </td>
-                    </tr>
-                  );
-                }
                 return rowEls;
               })}
             </tbody>
@@ -2003,6 +1982,28 @@ export default function ComplaintDashboard() {
       {focusedProduct && (
         <div onClick={function () { setFocusedProduct(null); }}
           style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "#000", zIndex: 30 }} />
+      )}
+      {focusedRow && (
+        <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: "min(1100px, 95vw)", maxHeight: "90vh", overflowY: "auto", zIndex: 40 }}>
+          <FocusPanel
+            row={focusedRow}
+            image={focusedRow.image}
+            zones={zones}
+            quotes={focusQuotes}
+            aiData={focusAI}
+            allRows={allComplaints.filter(function (c) { return c.key === focusedRow.key; }).sort(function (a, b) { return (b.week || 0) - (a.week || 0); })}
+            onClose={function () { setFocusedProduct(null); }}
+            storeDomain={STORE_CSVS[selectedStore].domain || ""}
+            storeName={STORE_CSVS[selectedStore].name}
+            contrib={contribData[focusedRow.key]}
+            stoppedInfo={stoppedAds[focusedRow.key]}
+            actionItems={actionsByProduct[focusedRow.key] || []}
+            onLogAction={makeLogAction(focusedRow)}
+            onStopAds={makeStopAds(focusedRow)}
+            onUndoAction={undoAction}
+            onUndoStop={makeUndoStop(focusedRow)}
+          />
+        </div>
       )}
 
       <FloatingWidgets storeName={STORE_CSVS[selectedStore].name} chatContext={chatContext} reportData={reportData} />
