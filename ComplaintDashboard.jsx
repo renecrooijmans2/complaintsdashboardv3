@@ -801,6 +801,7 @@ function FocusPanel(props) {
   var imgSrc = (prod && prod.image) || props.image || "";
 
   // Factory QC photos + size chart from the Notion backend DB.
+  var stPrev = useState(null); var preview = stPrev[0]; var setPreview = stPrev[1];
   var stQC = useState(null); var qc = stQC[0]; var setQC = stQC[1];
   var stQCE = useState(""); var qcErr = stQCE[0]; var setQCErr = stQCE[1];
   var stQCD = useState(false); var qcDone = stQCD[0]; var setQCDone = stQCD[1];
@@ -846,7 +847,7 @@ function FocusPanel(props) {
 
   return (
     <div style={{ background: N.bg, border: "1px solid " + N.border, borderRadius: 8, padding: 16, display: "flex", flexDirection: "column", gap: 14, position: "relative", zIndex: 40 }}>
-      <style>{".zoomable{transition:transform .15s ease;transform-origin:left center;cursor:zoom-in;position:relative}.zoomable:hover{transform:scale(2.4);z-index:80;box-shadow:0 8px 32px rgba(0,0,0,0.7)}"}</style>
+
       <div style={{ fontSize: 14, fontWeight: 700, color: N.text, display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
         <span style={{ flex: 1 }}>{row.product}</span>
         {qc && qc.notionUrl && <a href={qc.notionUrl} target="_blank" rel="noreferrer" style={{ fontSize: 10, fontWeight: 500, color: N.textS, textDecoration: "none" }}>Notion {"\u2197"}</a>}
@@ -855,11 +856,16 @@ function FocusPanel(props) {
         )}
       </div>
       {qcErr && <div style={{ fontSize: 9, color: N.textT, marginTop: -8 }}>Notion: {qcErr}</div>}
+      {preview && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.88)", backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)", zIndex: 90, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+          <img src={preview} alt="preview" style={{ maxWidth: "92vw", maxHeight: "92vh", width: "auto", height: "auto", objectFit: "contain", borderRadius: 6, boxShadow: "0 12px 48px rgba(0,0,0,0.8)" }} />
+        </div>
+      )}
       {/* Top row: photo + key stats + AI analysis */}
       <div style={{ display: "grid", gridTemplateColumns: (imgSrc || (qc && qc.qcImages && qc.qcImages.length > 0)) ? "175px 1fr 1fr" : "1fr 1fr", gap: 16, alignItems: "start" }}>
         {(imgSrc || (qc && qc.qcImages && qc.qcImages.length > 0)) && (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {imgSrc && <img src={imgSrc} alt={row.product} className="zoomable" style={{ width: 170, height: 170, objectFit: "cover", borderRadius: 6, border: "1px solid " + N.border, background: N.bg }} />}
+            {imgSrc && <img src={imgSrc} alt={row.product} onMouseEnter={function () { setPreview(imgSrc); }} onMouseLeave={function () { setPreview(null); }} style={{ width: 170, height: 170, objectFit: "cover", borderRadius: 6, border: "1px solid " + N.border, background: N.bg, cursor: "zoom-in" }} />}
             {prod && prod.url && (
               <a href={prod.url} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: N.textS, textDecoration: "none", textAlign: "center" }}>View on site {"\u2197"}</a>
             )}
@@ -870,7 +876,7 @@ function FocusPanel(props) {
                   {qc.qcImages.slice(0, 4).map(function (u, i) {
                     return (
                       <a key={i} href={u} target="_blank" rel="noreferrer">
-                        <img src={u} alt={"QC " + (i + 1)} className="zoomable" style={{ width: 82, height: 82, objectFit: "cover", borderRadius: 4, border: "1px solid " + N.border, background: N.bg, display: "block" }} />
+                        <img src={u} alt={"QC " + (i + 1)} onMouseEnter={function () { setPreview(u); }} onMouseLeave={function () { setPreview(null); }} style={{ width: 82, height: 82, objectFit: "cover", borderRadius: 4, border: "1px solid " + N.border, background: N.bg, display: "block", cursor: "zoom-in" }} />
                       </a>
                     );
                   })}
@@ -889,9 +895,15 @@ function FocusPanel(props) {
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             {row.scaleRisk && (
-              <span title={"Orders just ramped (" + row.scaleRisk.recent2 + " last 2 wks vs " + row.scaleRisk.prev2 + " before). " + row.scaleRisk.recentComplaints + " complaints in the last 2 wks. With ~2-week shipping, the full complaint wave lands ~2 weeks after scaling."}
-                style={{ fontSize: 9, fontWeight: 700, color: N.textS, background: "rgba(255,255,255,0.06)", border: "1px solid " + N.border, padding: "2px 8px", borderRadius: 3, letterSpacing: "0.02em" }}>
+              <span title={"Orders just ramped (" + row.scaleRisk.recent2 + " last 2 wks vs " + row.scaleRisk.prev2 + " before). " + row.scaleRisk.recentComplaints + " complaints (" + row.scaleRisk.recentSerious + " serious) in the last 2 wks. With ~2-week shipping, the full complaint wave lands ~2 weeks after scaling."}
+                style={{ fontSize: 9, fontWeight: 700, color: N.red, background: "rgba(255,115,105,0.15)", border: "1px solid rgba(255,115,105,0.4)", padding: "2px 8px", borderRadius: 3, letterSpacing: "0.02em" }}>
                 SCALE RISK {"\u00B7"} just scaled ({row.scaleRisk.prev2} {"\u2192"} {row.scaleRisk.recent2} orders), early feedback negative
+              </span>
+            )}
+            {row.firstScaleWeek != null && (
+              <span title={"First week with real ad volume"}
+                style={{ fontSize: 9, fontWeight: 600, color: N.textS, background: "rgba(255,255,255,0.06)", border: "1px solid " + N.border, padding: "2px 8px", borderRadius: 3 }}>
+                First scaled W{row.firstScaleWeek}
               </span>
             )}
             {props.stoppedInfo && (
@@ -1454,17 +1466,32 @@ export default function ComplaintDashboard() {
         if (autoReasons.length > 0) row.killSignal = { tier: "auto", reasons: autoReasons };
         else if (debateReasons.length > 0) row.killSignal = { tier: "debate", reasons: debateReasons };
       }
-      // Scale risk: orders just ramped hard, and the FIRST feedback wave (2-wk shipping lag) is negative.
+      // Scale risk: orders just ramped, and the FIRST feedback wave (2-wk shipping lag) is negative.
+      // Triggers early: 2 recent complaints of any kind, OR even 1 serious discrepancy
+      // (Looks Different / Quality — missing pockets, 2D instead of 3D, wrong item vibes).
       row.scaleRisk = null;
       var wkO = ordersByKey[p.key] ? ordersByKey[p.key].weekOrders : {};
       var recent2 = (wkO[latestDataWeek] || 0) + (wkO[latestDataWeek - 1] || 0);
       var prev2 = (wkO[latestDataWeek - 2] || 0) + (wkO[latestDataWeek - 3] || 0);
-      var recentComplaints = 0;
+      var recentComplaints = 0, recentSerious = 0;
       allComplaints.forEach(function (c) {
-        if (c.key === p.key && !c.detailOnly && c.week != null && c.week >= weekRange[1] - 1) recentComplaints++;
+        if (c.key === p.key && !c.detailOnly && c.week != null && c.week >= weekRange[1] - 1) {
+          recentComplaints++;
+          if (c.type === "looks_different" || c.type === "quality") recentSerious++;
+        }
       });
-      if (!row.killSignal && recent2 >= 20 && recent2 >= 2.5 * Math.max(prev2, 1) && recentComplaints >= 3) {
-        row.scaleRisk = { recent2: recent2, prev2: prev2, recentComplaints: recentComplaints };
+      var ramped = recent2 >= 10 && recent2 >= 1.8 * Math.max(prev2, 1);
+      if (!row.killSignal && ramped && (recentComplaints >= 2 || recentSerious >= 1)) {
+        row.scaleRisk = { recent2: recent2, prev2: prev2, recentComplaints: recentComplaints, recentSerious: recentSerious };
+      }
+      // First week this product started scaling (first week with real volume / a clear jump)
+      row.firstScaleWeek = null;
+      var wNums = Object.keys(wkO).map(Number).sort(function (a, b) { return a - b; });
+      for (var wi = 0; wi < wNums.length; wi++) {
+        var w = wNums[wi];
+        var vol = wkO[w] || 0;
+        var prevVol = wkO[w - 1] || 0;
+        if (vol >= 20 || (vol >= 10 && vol >= 3 * Math.max(prevVol, 1))) { row.firstScaleWeek = w; break; }
       }
       return row;
     });
@@ -1951,12 +1978,14 @@ export default function ComplaintDashboard() {
                     <td style={{ padding: "5px 7px", textAlign: "left", borderBottom: "1px solid " + N.border, whiteSpace: "nowrap" }}>
                       {row.killSignal ? (
                         <span title={(row.killSignal.tier === "auto" ? "AUTO KILL \u2014 " : "DEBATE \u2014 ") + row.killSignal.reasons.join(", ")}
-                          style={{ fontSize: 9, fontWeight: 700, color: N.textS, background: "rgba(255,255,255,0.06)", border: "1px solid " + N.border, padding: "2px 7px", borderRadius: 3, letterSpacing: "0.02em" }}>
+                          style={row.killSignal.tier === "auto"
+                            ? { fontSize: 9, fontWeight: 700, color: N.red, background: "rgba(255,115,105,0.15)", border: "1px solid rgba(255,115,105,0.4)", padding: "2px 7px", borderRadius: 3, letterSpacing: "0.02em" }
+                            : { fontSize: 9, fontWeight: 700, color: N.textS, background: "rgba(255,255,255,0.06)", border: "1px solid " + N.border, padding: "2px 7px", borderRadius: 3, letterSpacing: "0.02em" }}>
                           {row.killSignal.tier === "auto" ? "KILL" : "DEBATE"}
                         </span>
                       ) : row.scaleRisk ? (
-                        <span title={"Orders just ramped (" + row.scaleRisk.recent2 + " last 2 wks vs " + row.scaleRisk.prev2 + " before) and early feedback is negative (" + row.scaleRisk.recentComplaints + " complaints in the last 2 wks). With ~2-week shipping, the full complaint wave lands ~2 weeks after scaling \u2014 watch closely."}
-                          style={{ fontSize: 9, fontWeight: 700, color: N.textS, background: "rgba(255,255,255,0.06)", border: "1px solid " + N.border, padding: "2px 7px", borderRadius: 3, letterSpacing: "0.02em" }}>
+                        <span title={"Orders just ramped (" + row.scaleRisk.recent2 + " last 2 wks vs " + row.scaleRisk.prev2 + " before) and early feedback is negative (" + row.scaleRisk.recentComplaints + " complaints, " + row.scaleRisk.recentSerious + " serious, in the last 2 wks). With ~2-week shipping, the full complaint wave lands ~2 weeks after scaling \u2014 watch closely."}
+                          style={{ fontSize: 9, fontWeight: 700, color: N.red, background: "rgba(255,115,105,0.15)", border: "1px solid rgba(255,115,105,0.4)", padding: "2px 7px", borderRadius: 3, letterSpacing: "0.02em" }}>
                           SCALE RISK
                         </span>
                       ) : row.earlyWarning ? (
