@@ -343,24 +343,23 @@ function parseStoppedAdsCSV(text) {
   return out;
 }
 
-/* Contribution margin CSV → map productId -> { refundRate, beRoas }.
+/* Contribution margin CSV → map productId -> { refundRate }.
    Header-based first ("refund", "roas"/"breakeven"); falls back to fixed
    columns B (id), N (refund), O (breakeven ROAS) if headers don't match. */
 function parseContribCSV(text) {
   var rows = text.split("\n").map(parseCSVRow);
-  var hi = findHeader(rows, ["product", "refund", "roas", "margin"]);
+  var hi = findHeader(rows, ["product", "refund", "margin"]);
   if (hi === -1) hi = 0;
   var h = rows[hi].map(function (c) { return c.toLowerCase().trim(); });
-  var ci = { pid: -1, refund: -1, roas: -1 };
+  var ci = { pid: -1, refund: -1 };
   h.forEach(function (c, i) {
     if (ci.pid === -1 && c.indexOf("id") !== -1 && c.indexOf("product") !== -1) ci.pid = i;
-    if (ci.refund === -1 && c.indexOf("refund") !== -1) ci.refund = i;
-    if (ci.roas === -1 && (c.indexOf("roas") !== -1 || c.indexOf("breakeven") !== -1 || c.indexOf("break-even") !== -1 || c.indexOf("break even") !== -1)) ci.roas = i;
+    // Refund RATE column only — "refund" alone can be a count/amount column.
+    if (ci.refund === -1 && c.indexOf("refund") !== -1 && (c.indexOf("%") !== -1 || c.indexOf("rate") !== -1 || c.indexOf("percent") !== -1)) ci.refund = i;
   });
-  // Fallback to fixed layout: B=1, N=13, O=14
+  // Fixed layout fallback: B = Product ID, O = refund rate.
   if (ci.pid === -1) ci.pid = 1;
-  if (ci.refund === -1) ci.refund = 13;
-  if (ci.roas === -1) ci.roas = 14;
+  if (ci.refund === -1) ci.refund = 14;
   var out = {};
   for (var i = hi + 1; i < rows.length; i++) {
     var r = rows[i];
@@ -368,11 +367,10 @@ function parseContribCSV(text) {
     var pid = normId(r[ci.pid]);
     if (!pid) continue;
     var refund = cleanNum(r[ci.refund]);
-    var roas = cleanNum(r[ci.roas]);
-    if (refund == null && roas == null) continue;
-    // Refund often stored as fraction (0.043) — normalize to %
-    if (refund != null && refund <= 1) refund = refund * 100;
-    out[pid] = { refundRate: refund, beRoas: roas };
+    if (refund == null) continue;
+    // Stored as fraction (0.043) — normalize to %
+    if (refund <= 1) refund = refund * 100;
+    out[pid] = { refundRate: refund };
   }
   return out;
 }
@@ -890,6 +888,12 @@ function FocusPanel(props) {
         )}
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            {row.scaleRisk && (
+              <span title={"Orders just ramped (" + row.scaleRisk.recent2 + " last 2 wks vs " + row.scaleRisk.prev2 + " before). " + row.scaleRisk.recentComplaints + " complaints in the last 2 wks. With ~2-week shipping, the full complaint wave lands ~2 weeks after scaling."}
+                style={{ fontSize: 9, fontWeight: 700, color: N.textS, background: "rgba(255,255,255,0.06)", border: "1px solid " + N.border, padding: "2px 8px", borderRadius: 3, letterSpacing: "0.02em" }}>
+                SCALE RISK {"\u00B7"} just scaled ({row.scaleRisk.prev2} {"\u2192"} {row.scaleRisk.recent2} orders), early feedback negative
+              </span>
+            )}
             {props.stoppedInfo && (
               <span style={{ fontSize: 9, color: N.red }}>
                 stopped {props.stoppedInfo.stoppedDate ? "since " + props.stoppedInfo.stoppedDate : ""}
@@ -897,19 +901,18 @@ function FocusPanel(props) {
               </span>
             )}
           </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(" + CATEGORIES.length + ", minmax(0, 1fr))", gap: 6 }}>
             {[
               { label: "Orders 14d", value: row.orders7d != null ? row.orders7d.toLocaleString() : "\u2014" },
               { label: "Orders (range)", value: row.orders.toLocaleString() },
               { label: "Complaints", value: row.complaints },
               { label: "Total %", value: fmtPct(row.pct), color: row.pct >= KILL_TOTAL_THRESHOLD ? N.red : N.text },
-              contrib && contrib.refundRate != null ? { label: "Refund rate", value: fmtPct(contrib.refundRate), color: contrib.refundRate >= 10 ? N.red : N.text } : null,
-              contrib && contrib.beRoas != null ? { label: "BE ROAS", value: contrib.beRoas.toFixed(2) } : null,
-            ].filter(Boolean).map(function (s) {
+              { label: "Refund rate", value: contrib && contrib.refundRate != null ? fmtPct(contrib.refundRate) : "\u2014", color: contrib && contrib.refundRate != null && contrib.refundRate >= 10 ? N.red : N.text },
+            ].map(function (s) {
               return (
-                <div key={s.label} style={{ background: N.bg, border: "1px solid " + N.border, borderRadius: 5, padding: "6px 12px", minWidth: 76 }}>
-                  <div style={{ fontSize: 8.5, color: N.textT, fontWeight: 600 }}>{s.label}</div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: s.color || N.text, fontVariantNumeric: "tabular-nums" }}>{s.value}</div>
+                <div key={s.label} style={{ background: N.bg, border: "1px solid " + N.border, borderRadius: 5, padding: "7px 9px", textAlign: "center" }}>
+                  <div style={{ fontSize: 8.5, color: N.textT, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.label}</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: s.color || N.text, fontVariantNumeric: "tabular-nums" }}>{s.value}</div>
                 </div>
               );
             })}
@@ -1176,7 +1179,6 @@ export default function ComplaintDashboard() {
   var stChecked = useState(function () { return loadCheckedProducts(); });
   var checkedState = stChecked[0]; var setCheckedState = stChecked[1];
   var stStopped = useState({}); var sheetStopped = stStopped[0]; var setSheetStopped = stStopped[1];
-  var stAdFilter = useState("advertising"); var adFilter = stAdFilter[0]; var setAdFilter = stAdFilter[1];
 
   // NEW state
   var stFocus = useState(null); var focusedProduct = stFocus[0]; var setFocusedProduct = stFocus[1];
@@ -1223,7 +1225,7 @@ export default function ComplaintDashboard() {
             if (oD.length > 0) { ords = ords.concat(oD); fetched = true; }
           }
         } catch (e) { console.error("Store load fail:", store.name, e); }
-        // Contribution margin (refund rate + BE ROAS)
+        // Contribution margin (refund rate, col O)
         try {
           if (store.contribUrl) {
             var mT = await (await fetch(store.contribUrl)).text();
@@ -1402,13 +1404,10 @@ export default function ComplaintDashboard() {
         if (EXCLUDE_TITLE_PATTERNS[i].test(t)) return false;
       }
       if (p.orders < minSales) return false;
-      var isStopped = !!stoppedAds[p.key];
-      if (adFilter === "advertising" && isStopped) return false;
-      if (adFilter === "stopped" && !isStopped) return false;
       if (statusFilter !== "all" && p.status.toLowerCase() !== statusFilter) return false;
       return true;
     });
-  }, [productData, minSales, stoppedAds, adFilter, statusFilter]);
+  }, [productData, minSales, statusFilter]);
 
   var totals = useMemo(function () {
     var o = 0, c = 0, worst = null;
@@ -1825,15 +1824,6 @@ export default function ComplaintDashboard() {
               style={{ background: "transparent", border: "none", color: N.text, fontSize: 11, fontFamily: "inherit", outline: "none", width: 50 }} />
             <span style={{ fontSize: 9, color: N.textT }}>orders</span>
           </div>
-          {/* Ad filter */}
-          <div style={{ display: "flex", alignItems: "center", gap: 4, background: N.bgC, borderRadius: 4, padding: "4px 10px", border: "1px solid " + N.border }}>
-            <span style={{ fontSize: 9, color: N.textT }}>Show</span>
-            <select value={adFilter} onChange={function (e) { setAdFilter(e.target.value); }} style={{ background: "transparent", border: "none", color: N.text, fontSize: 11, fontFamily: "inherit", outline: "none" }}>
-              <option value="advertising">Advertising</option>
-              <option value="all">All</option>
-              <option value="stopped">Stopped</option>
-            </select>
-          </div>
           {/* Status filter */}
           <div style={{ display: "flex", alignItems: "center", gap: 4, background: N.bgC, borderRadius: 4, padding: "4px 10px", border: "1px solid " + N.border }}>
             <span style={{ fontSize: 9, color: N.textT }}>Status</span>
@@ -1842,6 +1832,7 @@ export default function ComplaintDashboard() {
               <option value="active">Active</option>
               <option value="edited">Edited</option>
               <option value="inactive">Inactive</option>
+              <option value="stopped">Stopped</option>
             </select>
           </div>
         </div>
