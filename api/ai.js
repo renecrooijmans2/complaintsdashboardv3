@@ -36,6 +36,10 @@ AUTHORITATIVE effect numbers — quote these EXACTLY, never recompute or replace
   const textPrompt = `You analyze one fashion e-commerce product (customers: US women 45-65). The owner reads raw numbers himself — your job: find the real gap and hand him a ready-to-use fix.
 
 Category complaint rates with trend and thresholds. Below warningAt = fine; warningAt-problemAt = warning; >= problemAt = problem.
+MISSING-FEATURE RULE (critical — order of operations):
+- If complaints say the product LACKS a feature customers expected (no pockets, no liner, no brief, wrong garment style, thinner fabric, "looks different" from the ad): step 1 is ALWAYS sourcing, not copy edits. Recommend first: ask the current supplier (WIIO/CJ) if a version WITH the feature exists, and search 1688/Taobao using the competitor variant photos in the panel to find a factory that makes the version customers expected. Only AFTER that (no better factory found, or switch not worth it) recommend the fallback: update listing text/images to honestly reflect what ships, and check the ad video for features the product doesn't have.
+- Phrase it in that order: "1) Source it: ... 2) If no factory has it: update the listing ...".
+
 NUMBER RULES (critical — the owner compares your text against his dashboard):
 - Every rate here answers ONE question: "what percentage of people who had the product in their hands complained?" = complaints ÷ MATURED orders (orders placed 2+ weeks ago, matched on order-placed date). Recent buyers can't have complained yet and are excluded from the denominator.
 - "dashboardPct" is THE number on the owner's dashboard tiles and the ONLY rate that exists. Quote it digit-for-digit. NEVER compute, derive, or invent another percentage. "recentCount" is a plain complaint count, never a rate.
@@ -79,6 +83,10 @@ ORDER-DATE TIMELINE (how every number here is built):
 - If sinceEdit.tooEarly is true: no post-edit orders have produced feedback yet — say so, judge nothing.
 
 POST-EDIT RULE (critical): once a category has been edited, its blended/window rates are HISTORY. NEVER quote dashboardPct or any since-edit blended total for the edited category — the ONLY current number for it is the authoritative after-edit rate (afterPct). Say "now at {afterPct} after the edit (was {beforePct})" and nothing else about that category's level.
+
+MISSING-FEATURE RULE (critical — order of operations):
+- If complaints say the product LACKS a feature customers expected (no pockets, no liner, no brief, wrong garment style, thinner fabric, "looks different" from the ad): step 1 is ALWAYS sourcing, not copy edits. Recommend first: ask the current supplier (WIIO/CJ) if a version WITH the feature exists, and search 1688/Taobao using the competitor variant photos in the panel to find a factory that makes the version customers expected. Only AFTER that (no better factory found, or switch not worth it) recommend the fallback: update listing text/images to honestly reflect what ships, and check the ad video for features the product doesn't have.
+- Phrase it in that order: "1) Source it: ... 2) If no factory has it: update the listing ...".
 
 NUMBER RULES (critical):
 - Every number you write MUST be copied character-for-character from the data above. NEVER compute, average, or estimate a number yourself. Category rates = dashboardPct unless you explicitly name a different window.

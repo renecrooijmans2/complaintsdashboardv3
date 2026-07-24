@@ -22,7 +22,7 @@ export default async function handler(req, res) {
   const prop = STORE_URL_PROP[store];
   if (!handle || !prop) return res.status(400).json({ error: "handle and valid store required" });
 
-  const body = JSON.stringify({ filter: { property: prop, url: { contains: String(handle) } }, page_size: 10 });
+  const body = JSON.stringify({ filter: { property: prop, url: { contains: String(handle) } }, page_size: 25 });
   const call = (url, version) =>
     fetch(url, { method: "POST", headers: { Authorization: `Bearer ${key}`, "Notion-Version": version, "Content-Type": "application/json" }, body });
 
@@ -33,17 +33,34 @@ export default async function handler(req, res) {
       if (!r.ok) { r = await call(`https://api.notion.com/v1/databases/${src.db}/query`, "2022-06-28"); j = await r.json(); }
       if (!r.ok) continue;
       // "contains" can match the wrong row (short handles are substrings of longer ones).
-      // Verify: the row's URL must contain EXACTLY /products/<handle> as a full path segment.
+      // Prefer an EXACT /products/<handle> match; fall back to the first candidate, flagged as fuzzy.
       const want = ("/products/" + String(handle)).toLowerCase();
-      const page = (j.results || []).find((pg) => {
-        const u = String(pg.properties?.[prop]?.url || "").toLowerCase().split("?")[0].replace(/\/$/, "");
-        return u.endsWith(want);
-      });
+      const norm = (v) => { let x = String(v || "").toLowerCase().trim().split("#")[0].split("?")[0].replace(/\/+$/, ""); try { x = decodeURIComponent(x); } catch (e) { /* keep raw */ } return x; };
+      const rowHandle = (pg) => (norm(pg.properties?.[prop]?.url).match(/\/products\/([^/]+)$/) || [])[1] || "";
+      const results = j.results || [];
+      let page = results.find((pg) => norm(pg.properties?.[prop]?.url).endsWith(want));
+      let fuzzy = false;
+      if (!page && results.length > 0) {
+        // pick the candidate whose handle shares the most leading characters with ours — not just the first hit
+        const target = String(handle).toLowerCase();
+        let best = null, bestScore = -1;
+        for (const pg of results) {
+          const rh = rowHandle(pg);
+          let score = 0;
+          while (score < Math.min(rh.length, target.length) && rh[score] === target[score]) score++;
+          if (score > bestScore) { bestScore = score; best = pg; }
+        }
+        page = best; fuzzy = true;
+      }
       if (!page) continue;
+      const titleProp = Object.values(page.properties || {}).find((p2) => p2.type === "title");
+      const matchedTitle = titleProp?.title?.map((t) => t.plain_text).join("").slice(0, 60) || null;
       const p = page.properties || {};
       res.setHeader("Cache-Control", "s-maxage=1200");
       return res.status(200).json({
         found: true,
+        fuzzy: fuzzy,
+        matchedTitle: fuzzy ? matchedTitle : null,
         notionUrl: page.url || null,
         adVideos: fileUrls(p["🎞️ Ads"]).slice(0, 4),
         competitorUrl: p["🏢 Competitor"]?.url || null,
