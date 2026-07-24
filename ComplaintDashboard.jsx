@@ -10,16 +10,15 @@ var STORE_CSVS = [
     ordersUrl: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTebDK0L1zu6vE8T7NGW6352-RzjHc4DHGfWH7YjADDGn0Z9J18K6GvlpmHCX6-EpjgZ8KjTD0J20Df/pub?gid=1091916976&single=true&output=csv",
     // Contribution margin sheet (published CSV). Cols: B = Product ID, N = refund rate, O = breakeven ROAS.
     contribUrl: "https://docs.google.com/spreadsheets/d/e/2PACX-1vR2TwY2Xoy8VTCaLt_jNgXe_-VRMTdS_ahkoakiCwHcAqIGg3PFCIK4286TUpeRwVjRW5LGHE5lPGAp/pub?output=csv",
-    // TODO(René): storefront domain (no https://) — powers the auto product link + photo in the focus view.
-    domain: "",
+    // Storefront domain — powers the auto product link + photo in the focus view.
+    domain: "clarendale.co",
   },
   {
     name: "Lark & Clover",
     complaintsUrl: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTebDK0L1zu6vE8T7NGW6352-RzjHc4DHGfWH7YjADDGn0Z9J18K6GvlpmHCX6-EpjgZ8KjTD0J20Df/pub?gid=113813265&single=true&output=csv",
     ordersUrl: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTebDK0L1zu6vE8T7NGW6352-RzjHc4DHGfWH7YjADDGn0Z9J18K6GvlpmHCX6-EpjgZ8KjTD0J20Df/pub?gid=2078912011&single=true&output=csv",
     contribUrl: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTqyqMMxRWMzCQf8ZMsIERubusembyKZiyoAW6vq4lIbUcd_HxQnA5BOe7QYE-c4U9CXQ9-lh-ZTBQr/pub?output=csv",
-    // TODO(René): storefront domain (no https://)
-    domain: "",
+    domain: "larkandclover.com",
   },
   // { name: "Store 3", complaintsUrl: "...", ordersUrl: "...", contribUrl: "...", domain: "..." },
 ];
@@ -33,7 +32,10 @@ var UI_ZOOM = 1.5;
 // Vercel serverless endpoints (files in /api). Work only on the deployed site,
 // not in local `vite dev` — the UI degrades gracefully when they're missing.
 var AI_API_PATH = "/api/ai";
+var CHAT_API_PATH = "/api/chat";
+var REPORT_API_PATH = "/api/report";
 var PRODUCT_LOOKUP_PATH = "/api/product-lookup";
+var NOTION_QC_PATH = "/api/notion-qc";
 var ACTIONS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTebDK0L1zu6vE8T7NGW6352-RzjHc4DHGfWH7YjADDGn0Z9J18K6GvlpmHCX6-EpjgZ8KjTD0J20Df/pub?gid=1657576006&single=true&output=csv";
 var CONFIG_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTebDK0L1zu6vE8T7NGW6352-RzjHc4DHGfWH7YjADDGn0Z9J18K6GvlpmHCX6-EpjgZ8KjTD0J20Df/pub?gid=1331895582&single=true&output=csv";
 var STOPPED_ADS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTebDK0L1zu6vE8T7NGW6352-RzjHc4DHGfWH7YjADDGn0Z9J18K6GvlpmHCX6-EpjgZ8KjTD0J20Df/pub?gid=419605787&single=true&output=csv";
@@ -46,11 +48,11 @@ var COMPLAINT_DETAIL_CSV_URL = "";
 // Google Apps Script Web App URL — enables logging Actions / Stopped Advertising
 // straight into the Google Sheet from the dashboard (with undo).
 // Setup: see apps-script/Code.gs + README. Leave "" to hide the buttons.
-var APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyPf4MYQO4r4NB9yCAa1S7zrMGCcvMCrCuEJGwJfZScPfmGCgKfahIW2ugh9MqDhr0/exec";
+var APPS_SCRIPT_URL = "";
 
 /* ── THEME ── */
 var N = {
-  bg: "#191919",
+  bg: "#252525",
   bgS: "#2F3437",
   bgC: "#252525",
   text: "rgba(255,255,255,0.9)",
@@ -584,7 +586,7 @@ function ActionHistory(props) {
   var items = props.items || [];
   var onUndo = props.onUndo;
   if (items.length === 0) {
-    return <div style={{ fontSize: 10, color: N.textT, fontStyle: "italic", padding: "4px 0" }}>No actions logged for this product.</div>;
+    return <div style={{ fontSize: 11, color: N.textT, padding: "4px 0" }}>No actions logged for this product.</div>;
   }
   return (
     <div>
@@ -609,7 +611,7 @@ function ActionHistory(props) {
             <div style={{ display: "flex", gap: 10, alignItems: "baseline", fontSize: 12, flexWrap: "wrap" }}>
               <span style={{ color: N.blue, fontWeight: 700, fontSize: 11, minWidth: 32 }}>W{a.week}</span>
               <span style={{ fontSize: 10, color: N.textS, background: "rgba(82,156,202,0.12)", padding: "2px 7px", borderRadius: 3, whiteSpace: "nowrap" }}>{cat ? cat.label : a.category}</span>
-              <span style={{ color: N.text, fontWeight: 600, flex: 1, minWidth: 160 }}>{a.action}</span>
+              <span style={{ color: N.text, fontWeight: 600, flex: 1, minWidth: 160, fontSize: 13 }}>{a.action}</span>
               {a.date && <span style={{ fontSize: 9, color: N.textT }}>{a.date}</span>}
               {a.status && <span style={{ fontSize: 9, color: a.status === "Active" || a.status === "Confirmed" ? N.green : N.orange, background: "rgba(255,255,255,0.05)", padding: "2px 6px", borderRadius: 3 }}>{a.status}</span>}
               {a.pending && <span style={{ fontSize: 9, color: N.orange }}>{"saving\u2026"}</span>}
@@ -674,7 +676,7 @@ function ActionHistory(props) {
 function CategoryGrid(props) {
   var row = props.row;
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(" + CATEGORIES.length + ", minmax(0, 1fr))", gap: 6 }}>
       {CATEGORIES.map(function (c) {
         var count = row[c.key + "_count"] || 0;
         var pct = row[c.key] || 0;
@@ -731,12 +733,8 @@ function AIPanel(props) {
     <div style={{ background: N.bg, border: "1px solid " + N.border, borderRadius: 6, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
         <div style={{ fontSize: 10, fontWeight: 700, color: N.blue }}>
-          {"\u2728"} AI analysis {d && d.sinceWeek ? "\u00B7 feedback since last edit (W" + d.sinceWeek + ")" : "\u00B7 all feedback"}
+          AI analysis {d && d.sinceWeek ? "\u00B7 feedback since last edit (W" + d.sinceWeek + ")" : "\u00B7 all feedback"}
         </div>
-        <button onClick={function () { run(true); }} title="Re-analyze"
-          style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>
-          {"\u21BB"} Refresh
-        </button>
       </div>
       {!d || d.totalComplaints === 0 ? (
         <div style={{ fontSize: 10.5, color: N.textT, fontStyle: "italic" }}>No complaints in this window {"\u2014"} nothing to analyze.</div>
@@ -748,10 +746,10 @@ function AIPanel(props) {
         </div>
       ) : ai.data ? (
         <>
-          <div style={{ fontSize: 11.5, color: N.text, lineHeight: 1.55 }}>{ai.data.summary}</div>
+          <div style={{ fontSize: 11.5, color: N.text, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{ai.data.summary}</div>
           <div style={{ background: "rgba(82,156,202,0.08)", border: "1px solid rgba(82,156,202,0.3)", borderRadius: 5, padding: "8px 10px" }}>
-            <div style={{ fontSize: 9, fontWeight: 700, color: N.blue, marginBottom: 3 }}>RECOMMENDATION</div>
-            <div style={{ fontSize: 11.5, color: N.text, lineHeight: 1.55 }}>{ai.data.recommendation}</div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: N.blue, marginBottom: 3 }}>Recommendation</div>
+            <div style={{ fontSize: 11.5, color: N.text, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{ai.data.recommendation}</div>
           </div>
           <div style={{ fontSize: 9, color: N.textT }}>
             Based on {d.totalComplaints} complaints ({d.withText} with ticket text) {"\u00B7"} {d.orders.toLocaleString()} orders in window
@@ -771,6 +769,7 @@ function FocusPanel(props) {
   var stE = useState(""); var err = stE[0]; var setErr = stE[1];
   var stSN = useState(""); var stopNote = stSN[0]; var setStopNote = stSN[1];
   var stSF = useState(false); var showStopForm = stSF[0]; var setShowStopForm = stSF[1];
+  var stAll = useState(false); var showAll = stAll[0]; var setShowAll = stAll[1];
 
   var quotes = props.quotes || [];
   var contrib = props.contrib;
@@ -790,11 +789,28 @@ function FocusPanel(props) {
   }, [row.key, props.storeDomain]);
   var imgSrc = (prod && prod.image) || props.image || "";
 
+  // Factory QC photos + size chart from the Notion backend DB.
+  var stQC = useState(null); var qc = stQC[0]; var setQC = stQC[1];
+  useEffect(function () {
+    setQC(null);
+    var alive = true;
+    fetch(NOTION_QC_PATH + "?pid=" + encodeURIComponent(row.key) + "&store=" + encodeURIComponent(props.storeName || ""))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) { if (alive && j && j.found) setQC(j); })
+      .catch(function () { /* dev mode / not found — fine */ });
+    return function () { alive = false; };
+  }, [row.key, props.storeName]);
+
+  var stSaved = useState(false); var savedMsg = stSaved[0]; var setSavedMsg = stSaved[1];
   function submitAction() {
     if (!form.action.trim()) { setErr("Action description is required."); return; }
     setBusy(true); setErr("");
     props.onLogAction(Object.assign({}, form))
-      .then(function () { setBusy(false); setShowForm(false); setForm({ category: "too_small", action: "", expectedEffect: "", notes: "" }); })
+      .then(function () {
+        setBusy(false); setShowForm(false); setForm({ category: "too_small", action: "", expectedEffect: "", notes: "" });
+        setSavedMsg(true);
+        setTimeout(function () { setSavedMsg(false); if (props.onClose) props.onClose(); }, 1100);
+      })
       .catch(function (e) { setBusy(false); setErr(String(e.message || e)); });
   }
   function submitStop() {
@@ -810,23 +826,47 @@ function FocusPanel(props) {
   };
 
   return (
-    <div style={{ background: "rgba(82,156,202,0.04)", border: "1px solid rgba(82,156,202,0.25)", borderRadius: 8, padding: 16, display: "flex", flexDirection: "column", gap: 14 }}>
+    <div style={{ background: N.bg, border: "1px solid " + N.border, borderRadius: 8, padding: 16, display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: N.text, display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+        {row.product}
+        {qc && qc.notionUrl && <a href={qc.notionUrl} target="_blank" rel="noreferrer" style={{ fontSize: 10, fontWeight: 500, color: N.textS, textDecoration: "none" }}>Notion {"\u2197"}</a>}
+      </div>
       {/* Top row: photo + key stats + AI analysis */}
-      <div style={{ display: "grid", gridTemplateColumns: imgSrc ? "140px 1fr 1fr" : "1fr 1fr", gap: 16, alignItems: "start" }}>
-        {imgSrc && (
+      <div style={{ display: "grid", gridTemplateColumns: (imgSrc || (qc && qc.qcImages && qc.qcImages.length > 0)) ? "140px 1fr 1fr" : "1fr 1fr", gap: 16, alignItems: "start" }}>
+        {(imgSrc || (qc && qc.qcImages && qc.qcImages.length > 0)) && (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <img src={imgSrc} alt={row.product} style={{ width: 140, height: 140, objectFit: "cover", borderRadius: 6, border: "1px solid " + N.border, background: N.bg }} />
+            {imgSrc && <img src={imgSrc} alt={row.product} style={{ width: 140, height: 140, objectFit: "cover", borderRadius: 6, border: "1px solid " + N.border, background: N.bg }} />}
             {prod && prod.url && (
               <a href={prod.url} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: N.blue, textDecoration: "none", textAlign: "center" }}>View on site {"\u2197"}</a>
+            )}
+            {qc && qc.qcImages && qc.qcImages.length > 0 && (
+              <div>
+                <div style={{ fontSize: 9, fontWeight: 600, color: N.textT, marginBottom: 4 }}>Factory QC photos</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, width: 140 }}>
+                  {qc.qcImages.slice(0, 4).map(function (u, i) {
+                    return (
+                      <a key={i} href={u} target="_blank" rel="noreferrer">
+                        <img src={u} alt={"QC " + (i + 1)} style={{ width: 68, height: 68, objectFit: "cover", borderRadius: 4, border: "1px solid " + N.border, background: N.bg, display: "block" }} />
+                      </a>
+                    );
+                  })}
+                </div>
+                {qc.qcImages.length > 4 && <div style={{ fontSize: 8, color: N.textT, marginTop: 2 }}>+{qc.qcImages.length - 4} more in Notion</div>}
+              </div>
+            )}
+            {qc && (qc.sizeChart || qc.updatedSizeChart) && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                {qc.sizeChart && <a href={qc.sizeChart} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: N.blue, textDecoration: "none" }}>Factory size chart {"\u2197"}</a>}
+                {qc.updatedSizeChart && <a href={qc.updatedSizeChart} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: N.blue, textDecoration: "none" }}>Updated size chart {"\u2197"}</a>}
+              </div>
             )}
           </div>
         )}
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            <StatusChip status={row.status} />
             {props.stoppedInfo && (
               <span style={{ fontSize: 9, color: N.red }}>
-                {"\u{1F6AB}"} stopped {props.stoppedInfo.stoppedDate ? "since " + props.stoppedInfo.stoppedDate : ""}
+                stopped {props.stoppedInfo.stoppedDate ? "since " + props.stoppedInfo.stoppedDate : ""}
                 {props.stoppedInfo.note ? " \u00B7 " + props.stoppedInfo.note : ""}
               </span>
             )}
@@ -842,14 +882,13 @@ function FocusPanel(props) {
             ].filter(Boolean).map(function (s) {
               return (
                 <div key={s.label} style={{ background: N.bg, border: "1px solid " + N.border, borderRadius: 5, padding: "6px 12px", minWidth: 76 }}>
-                  <div style={{ fontSize: 8, color: N.textT, textTransform: "uppercase", letterSpacing: "0.04em", fontWeight: 600 }}>{s.label}</div>
+                  <div style={{ fontSize: 8.5, color: N.textT, fontWeight: 600 }}>{s.label}</div>
                   <div style={{ fontSize: 15, fontWeight: 700, color: s.color || N.text, fontVariantNumeric: "tabular-nums" }}>{s.value}</div>
                 </div>
               );
             })}
           </div>
           <div>
-            <div style={{ fontSize: 9, fontWeight: 600, color: N.textT, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Complaints by category</div>
             <CategoryGrid row={row} zones={props.zones} />
           </div>
         </div>
@@ -864,13 +903,13 @@ function FocusPanel(props) {
       {/* Action history + log buttons */}
       <div style={{ borderTop: "1px solid " + N.border, paddingTop: 10 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
-          <div style={{ fontSize: 9, fontWeight: 600, color: N.blue, textTransform: "uppercase", letterSpacing: "0.05em" }}>{"\u26A1"} Edit history</div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: N.textS }}>Edit history</div>
           <div style={{ display: "flex", gap: 8 }}>
             {writeEnabled ? (
               <>
                 <button onClick={function () { setShowForm(!showForm); setShowStopForm(false); }} style={btnStyle(N.blue, "rgba(82,156,202,0.12)", "rgba(82,156,202,0.35)")}>+ Log action</button>
                 {!props.stoppedInfo && (
-                  <button onClick={function () { setShowStopForm(!showStopForm); setShowForm(false); }} style={btnStyle(N.red, "rgba(255,115,105,0.1)", "rgba(255,115,105,0.3)")}>{"\u{1F6AB}"} Stop advertising</button>
+                  <button onClick={function () { setShowStopForm(!showStopForm); setShowForm(false); }} style={btnStyle(N.textS, "transparent", N.border)}>Stop advertising</button>
                 )}
                 {props.stoppedInfo && props.stoppedInfo.uuid && props.stoppedInfo.uuid.indexOf("dash-") === 0 && (
                   <button onClick={function () { props.onUndoStop(props.stoppedInfo); }} style={btnStyle(N.textS, "transparent", N.border)}>{"\u21BA"} Undo stop</button>
@@ -882,24 +921,25 @@ function FocusPanel(props) {
           </div>
         </div>
         {err && <div style={{ fontSize: 10, color: N.red, marginBottom: 6 }}>{err}</div>}
+        {savedMsg && <div style={{ fontSize: 11, color: N.green, fontWeight: 600, marginBottom: 6 }}>Action saved to the sheet.</div>}
         {showForm && (
           <div style={{ background: N.bg, border: "1px solid " + N.border, borderRadius: 6, padding: 12, marginBottom: 10, display: "grid", gridTemplateColumns: "160px 1fr 1fr", gap: 8, alignItems: "end" }}>
             <div>
-              <div style={{ fontSize: 8, color: N.textT, textTransform: "uppercase", marginBottom: 4 }}>Category</div>
+              <div style={{ fontSize: 9, color: N.textT, marginBottom: 4 }}>Category</div>
               <select value={form.category} onChange={function (e) { setForm(Object.assign({}, form, { category: e.target.value })); }} style={inputStyle}>
                 {CATEGORIES.map(function (c) { return <option key={c.key} value={c.key}>{c.label}</option>; })}
               </select>
             </div>
             <div>
-              <div style={{ fontSize: 8, color: N.textT, textTransform: "uppercase", marginBottom: 4 }}>Action *</div>
+              <div style={{ fontSize: 9, color: N.textT, marginBottom: 4 }}>Action *</div>
               <input value={form.action} placeholder="e.g. Supplier ships 1 size up" onChange={function (e) { setForm(Object.assign({}, form, { action: e.target.value })); }} style={inputStyle} />
             </div>
             <div>
-              <div style={{ fontSize: 8, color: N.textT, textTransform: "uppercase", marginBottom: 4 }}>Expected effect</div>
+              <div style={{ fontSize: 9, color: N.textT, marginBottom: 4 }}>Expected effect</div>
               <input value={form.expectedEffect} placeholder="e.g. -50% too_small" onChange={function (e) { setForm(Object.assign({}, form, { expectedEffect: e.target.value })); }} style={inputStyle} />
             </div>
             <div style={{ gridColumn: "1 / span 2" }}>
-              <div style={{ fontSize: 8, color: N.textT, textTransform: "uppercase", marginBottom: 4 }}>Notes</div>
+              <div style={{ fontSize: 9, color: N.textT, marginBottom: 4 }}>Notes</div>
               <input value={form.notes} onChange={function (e) { setForm(Object.assign({}, form, { notes: e.target.value })); }} style={inputStyle} />
             </div>
             <div style={{ display: "flex", gap: 8 }}>
@@ -911,7 +951,7 @@ function FocusPanel(props) {
         {showStopForm && (
           <div style={{ background: N.bg, border: "1px solid rgba(255,115,105,0.25)", borderRadius: 6, padding: 12, marginBottom: 10, display: "flex", gap: 8, alignItems: "end" }}>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 8, color: N.textT, textTransform: "uppercase", marginBottom: 4 }}>Reason / note</div>
+              <div style={{ fontSize: 9, color: N.textT, marginBottom: 4 }}>Reason / note</div>
               <input value={stopNote} placeholder="e.g. Quality complaints 12% - killing" onChange={function (e) { setStopNote(e.target.value); }} style={inputStyle} />
             </div>
             <button disabled={busy} onClick={submitStop} style={btnStyle("#fff", N.red, N.red)}>{busy ? "Saving\u2026" : "Confirm stop"}</button>
@@ -920,7 +960,160 @@ function FocusPanel(props) {
         )}
         <ActionHistory items={props.actionItems} onUndo={props.onUndoAction} />
       </div>
+
+      {/* All complaints, 1 row each */}
+      <div style={{ borderTop: "1px solid " + N.border, paddingTop: 10 }}>
+        <button onClick={function () { setShowAll(!showAll); }}
+          style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 10, fontWeight: 600, padding: "4px 12px", borderRadius: 4, cursor: "pointer", fontFamily: "inherit" }}>
+          {showAll ? "Hide" : "Show"} all complaints ({(props.allRows || []).length}) {showAll ? "\u25B4" : "\u25BE"}
+        </button>
+        {showAll && (
+          <div style={{ marginTop: 8, maxHeight: 260, overflowY: "auto", border: "1px solid " + N.border, borderRadius: 6 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10.5 }}>
+              <thead>
+                <tr>
+                  {["Week", "Category", "Ticket text"].map(function (h) {
+                    return <th key={h} style={{ background: N.bgS, color: N.textS, fontWeight: 600, fontSize: 9, textAlign: "left", padding: "6px 10px", position: "sticky", top: 0 }}>{h}</th>;
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {(props.allRows || []).map(function (c, i) {
+                  var cat = CATEGORIES.find(function (x) { return x.key === c.type; });
+                  return (
+                    <tr key={i}>
+                      <td style={{ padding: "5px 10px", color: N.textS, borderBottom: "1px solid " + N.border, whiteSpace: "nowrap" }}>W{c.week != null ? c.week : "?"}</td>
+                      <td style={{ padding: "5px 10px", color: N.textS, borderBottom: "1px solid " + N.border, whiteSpace: "nowrap" }}>{cat ? cat.label : c.type}</td>
+                      <td style={{ padding: "5px 10px", color: N.textS, borderBottom: "1px solid " + N.border }}>{c.summary || "\u2014"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   FLOATING WIDGETS — AI chat + report generator
+   ══════════════════════════════════════════ */
+function FloatingWidgets(props) {
+  var stOpen = useState(null); var open = stOpen[0]; var setOpen = stOpen[1]; // null | "chat" | "reports"
+  var stMsgs = useState([]); var msgs = stMsgs[0]; var setMsgs = stMsgs[1];
+  var stIn = useState(""); var input = stIn[0]; var setInput = stIn[1];
+  var stBusy = useState(false); var busy = stBusy[0]; var setBusy = stBusy[1];
+  var stRep = useState({ loading: false, text: "", error: "" }); var rep = stRep[0]; var setRep = stRep[1];
+
+  function send() {
+    var q = input.trim();
+    if (!q || busy) return;
+    var next = msgs.concat([{ role: "user", content: q }]);
+    setMsgs(next); setInput(""); setBusy(true);
+    fetch(CHAT_API_PATH, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: next.slice(-20), context: props.chatContext }),
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      setBusy(false);
+      setMsgs(next.concat([{ role: "assistant", content: j.text || j.error || "No response" }]));
+    }).catch(function (e) {
+      setBusy(false);
+      setMsgs(next.concat([{ role: "assistant", content: "Chat unavailable (" + String(e.message || e) + "). Works on the deployed Vercel site." }]));
+    });
+  }
+
+  function makeReport(type) {
+    setRep({ loading: true, text: "", error: "" });
+    fetch(REPORT_API_PATH, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: type, data: props.reportData }),
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      if (j.error) setRep({ loading: false, text: "", error: j.error });
+      else setRep({ loading: false, text: j.text || "", error: "" });
+    }).catch(function (e) {
+      setRep({ loading: false, text: "", error: "Unavailable (" + String(e.message || e) + "). Works on the deployed Vercel site." });
+    });
+  }
+
+  var panelBase = { position: "fixed", right: 14, bottom: 60, width: 400, maxWidth: "90vw", maxHeight: "72vh", background: N.bgC, border: "1px solid " + N.border, borderRadius: 8, display: "flex", flexDirection: "column", boxShadow: "0 8px 32px rgba(0,0,0,0.55)", zIndex: 50 };
+  var fabStyle = function (active) {
+    return { background: active ? "rgba(255,255,255,0.12)" : N.bgC, border: "1px solid " + N.border, color: N.textS, fontSize: 11, fontWeight: 600, padding: "7px 14px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" };
+  };
+
+  return (
+    <>
+      <div style={{ position: "fixed", right: 14, bottom: 14, display: "flex", gap: 8, zIndex: 51 }}>
+        <button onClick={function () { setOpen(open === "chat" ? null : "chat"); }} style={fabStyle(open === "chat")}>AI chat</button>
+        <button onClick={function () { setOpen(open === "reports" ? null : "reports"); }} style={fabStyle(open === "reports")}>Reports</button>
+      </div>
+
+      {open === "chat" && (
+        <div style={panelBase}>
+          <div style={{ padding: "10px 14px", borderBottom: "1px solid " + N.border, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: N.text }}>
+              AI chat {props.chatContext && props.chatContext.product ? "\u00B7 " + props.chatContext.product : "\u00B7 " + (props.storeName || "")}
+            </div>
+            <button onClick={function () { setMsgs([]); }} style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>Clear</button>
+          </div>
+          <div style={{ flex: 1, overflowY: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 8, minHeight: 180 }}>
+            {msgs.length === 0 && (
+              <div style={{ fontSize: 10.5, color: N.textT, lineHeight: 1.5 }}>
+                {props.chatContext && props.chatContext.product
+                  ? "Ask about this product. Paste a size chart to adjust it, or ask for an image-edit prompt."
+                  : "Open a product (click its title) to chat about it, or ask a general question about this store."}
+              </div>
+            )}
+            {msgs.map(function (m, i) {
+              return (
+                <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "88%", background: m.role === "user" ? "rgba(82,156,202,0.15)" : N.bg, border: "1px solid " + N.border, borderRadius: 6, padding: "7px 10px", fontSize: 11, color: N.text, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
+                  {m.content}
+                </div>
+              );
+            })}
+            {busy && <div style={{ fontSize: 10, color: N.textT }}>Thinking{"\u2026"}</div>}
+          </div>
+          <div style={{ padding: 10, borderTop: "1px solid " + N.border, display: "flex", gap: 8 }}>
+            <textarea value={input} rows={2} placeholder="Type here (Enter to send, Shift+Enter for a new line)"
+              onChange={function (e) { setInput(e.target.value); }}
+              onKeyDown={function (e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+              style={{ flex: 1, background: N.bg, border: "1px solid " + N.border, borderRadius: 5, color: N.text, fontSize: 11, fontFamily: "inherit", padding: "7px 9px", outline: "none", resize: "none" }} />
+            <button onClick={send} disabled={busy} style={{ background: "rgba(255,255,255,0.1)", border: "1px solid " + N.border, color: N.text, fontSize: 11, fontWeight: 600, padding: "0 14px", borderRadius: 5, cursor: "pointer", fontFamily: "inherit" }}>Send</button>
+          </div>
+        </div>
+      )}
+
+      {open === "reports" && (
+        <div style={panelBase}>
+          <div style={{ padding: "10px 14px", borderBottom: "1px solid " + N.border, fontSize: 11, fontWeight: 700, color: N.text }}>Reports {"\u00B7"} {props.storeName || ""}</div>
+          <div style={{ padding: 12, display: "flex", gap: 8, borderBottom: "1px solid " + N.border }}>
+            <button onClick={function () { makeReport("ceo"); }} style={fabStyle(false)}>CEO report</button>
+            <button onClick={function () { makeReport("risk"); }} style={fabStyle(false)}>High-risk new products</button>
+          </div>
+          <div style={{ flex: 1, overflowY: "auto", padding: 14, minHeight: 160 }}>
+            {rep.loading ? (
+              <div style={{ fontSize: 11, color: N.textS }}>Writing report{"\u2026"}</div>
+            ) : rep.error ? (
+              <div style={{ fontSize: 10.5, color: N.textS }}>{rep.error}</div>
+            ) : rep.text ? (
+              <div style={{ fontSize: 11.5, color: N.text, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{rep.text}</div>
+            ) : (
+              <div style={{ fontSize: 10.5, color: N.textT, lineHeight: 1.6 }}>
+                CEO report: the most important actions, go / no-go calls to make, and products where complaints are rising fast.{"\n\n"}High-risk: products live only 1{"\u2013"}2 weeks that already get sizing complaints.
+              </div>
+            )}
+          </div>
+          {rep.text && (
+            <div style={{ padding: 10, borderTop: "1px solid " + N.border }}>
+              <button onClick={function () { try { navigator.clipboard.writeText(rep.text); } catch (e) { /* no-op */ } }} style={fabStyle(false)}>Copy</button>
+            </div>
+          )}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -1312,7 +1505,11 @@ export default function ComplaintDashboard() {
     return {
       product: titleByKey[focusedProduct] || focusedProduct,
       sinceWeek: sinceWeek,
-      lastAction: lastAction ? { week: lastAction.week, category: lastAction.category, action: lastAction.action } : null,
+      lastAction: lastAction ? {
+        week: lastAction.week, category: lastAction.category, action: lastAction.action,
+        beforePct: lastAction.beforePct, afterPct: lastAction.afterPct, deltaPP: lastAction.deltaPP,
+        beforeOrders: lastAction.beforeOrders, afterOrders: lastAction.afterOrders,
+      } : null,
       counts: counts,
       totalComplaints: rows.length,
       withText: texts.length,
@@ -1320,6 +1517,51 @@ export default function ComplaintDashboard() {
       summaries: texts.slice(0, 40).map(function (c) { return { type: c.type, week: c.week, text: c.summary }; }),
     };
   }, [focusedProduct, allComplaints, actionsByProduct, ordersByKey, titleByKey]);
+  // Data payloads for the floating widgets
+  var reportData = useMemo(function () {
+    var recentActions = [];
+    actions.forEach(function (a) {
+      if (a.week != null && a.week >= currentWeekNum() - 2) {
+        var enriched = (actionsByProduct[a.key] || []).find(function (x) { return x.uuid === a.uuid || (x.week === a.week && x.action === a.action); });
+        recentActions.push({
+          product: titleByKey[a.key] || a.key, week: a.week, category: a.category, action: a.action,
+          beforePct: enriched ? enriched.beforePct : null, afterPct: enriched ? enriched.afterPct : null, deltaPP: enriched ? enriched.deltaPP : null,
+        });
+      }
+    });
+    var kills = [], risers = [], newRisk = [];
+    heatmapData.forEach(function (r) {
+      if (r.killSignal) kills.push({ product: r.product, pct: r.pct, tier: r.killSignal.tier, reasons: r.killSignal.reasons });
+      // rising: complaints in last 2 weeks vs the 4 weeks before
+      var recent = 0, prior = 0;
+      allComplaints.forEach(function (c) {
+        if (c.key !== r.key || c.detailOnly || c.week == null) return;
+        if (c.week >= weekRange[1] - 1) recent++;
+        else if (c.week >= weekRange[1] - 5) prior++;
+      });
+      if (recent >= 3 && recent > prior) risers.push({ product: r.product, last2w: recent, prior4w: prior, totalPct: r.pct });
+      var sizing = (r.too_small_count || 0) + (r.too_large_count || 0);
+      if (r.firstWeek != null && r.firstWeek >= latestDataWeek - 1 && sizing >= 2) {
+        newRisk.push({ product: r.product, liveWeeks: latestDataWeek - r.firstWeek + 1, orders: r.orders, tooSmall: r.too_small_count || 0, tooLarge: r.too_large_count || 0, totalPct: r.pct });
+      }
+    });
+    return { store: STORE_CSVS[selectedStore].name, week: currentWeekNum(), recentActions: recentActions.slice(0, 20), killSignals: kills.slice(0, 15), risingComplaints: risers.slice(0, 15), newProductsWithSizingRisk: newRisk.slice(0, 15) };
+  }, [actions, actionsByProduct, heatmapData, allComplaints, titleByKey, weekRange, latestDataWeek, selectedStore]);
+
+  var chatContext = useMemo(function () {
+    if (!focusedProduct) return { store: STORE_CSVS[selectedStore].name };
+    var r = heatmapData.find(function (x) { return x.key === focusedProduct; }) || {};
+    return {
+      store: STORE_CSVS[selectedStore].name,
+      product: r.product || (titleByKey[focusedProduct] || focusedProduct),
+      totalPct: r.pct, orders: r.orders, orders14d: r.orders7d,
+      counts: CATEGORIES.reduce(function (m, c) { m[c.label] = r[c.key + "_count"] || 0; return m; }, {}),
+      contrib: contribData[focusedProduct] || null,
+      lastAction: focusAI && focusAI.lastAction ? focusAI.lastAction : null,
+      recentTickets: focusAI ? focusAI.summaries.slice(0, 15) : [],
+    };
+  }, [focusedProduct, heatmapData, selectedStore, contribData, focusAI, titleByKey]);
+
 
   /* ── WRITE-BACK HANDLERS ── */
   function makeLogAction(row) {
@@ -1436,12 +1678,15 @@ export default function ComplaintDashboard() {
   };
 
   var visibleColCount = 7;
+  var dimUI = focusedProduct
+    ? { filter: "blur(2.5px) brightness(0.45)", opacity: 0.55, pointerEvents: "none", userSelect: "none", transition: "filter 0.2s, opacity 0.2s" }
+    : { transition: "filter 0.2s, opacity 0.2s" };
 
   return (
     <div style={{ minHeight: "100vh", background: N.bg, color: N.text, fontFamily: FONT, padding: "14px 18px", display: "flex", flexDirection: "column", gap: 10, zoom: UI_ZOOM }}>
 
       {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+      <div style={Object.assign({ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }, dimUI)}>
         <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <Logo />
@@ -1466,7 +1711,7 @@ export default function ComplaintDashboard() {
               );
             })}
           </div>
-          <span style={{ fontSize: 8, color: dataSrc === "live" ? N.green : N.orange, textTransform: "uppercase", letterSpacing: "0.05em" }}>{dataSrc === "live" ? "\u25CF live" : "\u25CF demo"}</span>
+          {dataSrc === "demo" && <span style={{ fontSize: 8, color: N.orange, textTransform: "uppercase", letterSpacing: "0.05em" }}>demo data</span>}
         </div>
 
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -1512,7 +1757,7 @@ export default function ComplaintDashboard() {
       </div>
 
       {/* KPI strip */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1.5fr", gap: 8 }}>
+      <div style={Object.assign({ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1.5fr", gap: 8 }, dimUI)}>
         {[
           { label: "Total Orders", value: totals.orders.toLocaleString() },
           { label: "Total Complaints", value: totals.complaints.toLocaleString() },
@@ -1536,7 +1781,7 @@ export default function ComplaintDashboard() {
             <div style={{ fontSize: 11, fontWeight: 600, color: N.textS, textTransform: "uppercase", letterSpacing: "0.04em" }}>Products</div>
             {heatmapData.length > 0 && (
               <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 10, color: N.textS }}>
-                <span style={{ color: N.green, fontWeight: 600 }}>
+                <span style={{ color: N.textS, fontWeight: 600 }}>
                   {Object.keys(checkedState.products).filter(function (p) { return heatmapData.some(function (r) { return r.key === p; }); }).length}/{heatmapData.length} reviewed
                 </span>
                 <span style={{ color: N.textT, fontSize: 9 }}>{"\u00B7"} resets Monday</span>
@@ -1546,7 +1791,7 @@ export default function ComplaintDashboard() {
               </div>
             )}
             {focusedProduct && (
-              <button onClick={function () { setFocusedProduct(null); }} style={{ background: "rgba(82,156,202,0.12)", border: "1px solid rgba(82,156,202,0.35)", color: N.blue, fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 4, cursor: "pointer", fontFamily: "inherit" }}>
+              <button onClick={function () { setFocusedProduct(null); }} style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 4, cursor: "pointer", fontFamily: "inherit" }}>
                 {"\u2715"} Exit focus
               </button>
             )}
@@ -1559,15 +1804,15 @@ export default function ComplaintDashboard() {
               <tr>
                 <th style={{ background: N.bgS, padding: "8px 6px", position: "sticky", top: 0, width: 36 }}></th>
                 {[
-                  { label: sortableHeader("Week Started", "newest"), align: "center" },
-                  { label: "Status", align: "center" },
+                  { label: sortableHeader("Week Started", "newest"), align: "left" },
+                  { label: "Status", align: "left" },
+                  { label: sortableHeader("Orders 14d", "orders7d"), align: "left" },
+                  { label: sortableHeader("Total %", "pct"), align: "left" },
                   { label: "Product", align: "left" },
-                  { label: sortableHeader("Orders 14d", "orders7d"), align: "center" },
-                  { label: sortableHeader("Total %", "pct"), align: "center" },
-                  { label: "Signal", align: "center" },
+                  { label: "Signal", align: "left" },
                 ].map(function (h, i) {
                   return (
-                    <th key={i} style={{ background: N.bgS, color: N.textS, fontWeight: 600, fontSize: 8, textTransform: "uppercase", letterSpacing: "0.03em", padding: "8px 10px", textAlign: h.align, whiteSpace: "nowrap", position: "sticky", top: 0 }}>
+                    <th key={i} style={{ background: N.bgS, color: N.textS, fontWeight: 600, fontSize: 9, letterSpacing: "0.02em", padding: "8px 10px", textAlign: h.align, whiteSpace: "nowrap", position: "sticky", top: 0 }}>
                       {h.label}
                     </th>
                   );
@@ -1590,7 +1835,7 @@ export default function ComplaintDashboard() {
                 var stoppedInfo = stoppedAds[row.key];
                 var isStopped = !!stoppedInfo;
                 var isFocused = focusedProduct === row.key;
-                var dimmed = focusedProduct && !isFocused;
+                var dimmed = !!focusedProduct; // blur ALL rows when focused — the panel row below stays sharp
                 var rowEls = [
                   <tr
                     key={row.key}
@@ -1598,8 +1843,8 @@ export default function ComplaintDashboard() {
                     onMouseLeave={function () { if (!focusedProduct) setHoveredProduct(null); }}
                     style={{
                       background: isFocused ? "rgba(82,156,202,0.08)" : (isHovered ? "rgba(255,255,255,0.03)" : "transparent"),
-                      opacity: dimmed ? 0.18 : (isChecked ? 0.4 : 1),
-                      filter: dimmed ? "blur(1.2px)" : "none",
+                      opacity: dimmed ? 0.1 : (isChecked ? 0.4 : 1),
+                      filter: dimmed ? "blur(2.5px) brightness(0.45)" : "none",
                       transition: "opacity 0.2s, filter 0.2s",
                     }}
                   >
@@ -1609,38 +1854,36 @@ export default function ComplaintDashboard() {
                           style={{ width: 14, height: 14, accentColor: N.green, cursor: "pointer" }} />
                       </label>
                     </td>
-                    <td style={{ padding: "7px 10px", textAlign: "center", color: N.textS, borderBottom: "1px solid " + N.border, whiteSpace: "nowrap" }}>
+                    <td style={{ padding: "7px 10px", textAlign: "left", color: N.textS, borderBottom: "1px solid " + N.border, whiteSpace: "nowrap" }}>
                       {row.firstWeek != null ? "W" + row.firstWeek : "\u2014"}
                     </td>
-                    <td style={{ padding: "7px 10px", textAlign: "center", borderBottom: "1px solid " + N.border }}>
+                    <td style={{ padding: "7px 10px", textAlign: "left", borderBottom: "1px solid " + N.border }}>
                       <StatusChip status={row.status} />
+                    </td>
+                    <td style={{ padding: "7px 10px", textAlign: "left", color: row.orders7d != null && row.orders7d < INACTIVE_SALES_7D ? N.textT : N.textS, borderBottom: "1px solid " + N.border }}>
+                      {row.orders7d != null ? row.orders7d.toLocaleString() : "\u2014"}
+                    </td>
+                    <td style={{ padding: "7px 10px", textAlign: "left", fontWeight: 700, fontSize: 12, borderBottom: "1px solid " + N.border, color: row.pct >= KILL_TOTAL_THRESHOLD ? N.red : N.text, background: row.pct >= KILL_TOTAL_THRESHOLD ? "rgba(255,115,105,0.12)" : "transparent" }}>
+                      {fmtPct(row.pct)}
                     </td>
                     <td
                       onClick={function () { setFocusedProduct(isFocused ? null : row.key); setHoveredProduct(null); }}
                       title={isFocused ? "Click to exit focus" : "Click to focus this product"}
                       style={{ padding: "7px 10px", textAlign: "left", color: N.text, fontWeight: 500, borderBottom: "1px solid " + N.border, borderLeft: hasAction ? "3px solid " + N.blue : "3px solid transparent", maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: isChecked ? "line-through" : "none", cursor: "pointer" }}>
-                      {isStopped && <span title={"Stopped advertising" + (stoppedInfo.stoppedDate ? " on " + stoppedInfo.stoppedDate : "") + (stoppedInfo.note ? " \u00B7 " + stoppedInfo.note : "")} style={{ marginRight: 6, color: N.red, fontSize: 11 }}>{"\u{1F6AB}"}</span>}
                       <span style={{ color: isStopped ? N.textS : N.text, borderBottom: "1px dotted rgba(255,255,255,0.2)" }}>{row.product}</span>
-                      {hasAction && <span style={{ marginLeft: 6, color: N.blue, fontSize: 10 }}>{"\u26A1"}</span>}
-                    </td>
-                    <td style={{ padding: "7px 10px", textAlign: "right", color: row.orders7d != null && row.orders7d < INACTIVE_SALES_7D ? N.textT : N.textS, borderBottom: "1px solid " + N.border }}>
-                      {row.orders7d != null ? row.orders7d.toLocaleString() : "\u2014"}
-                    </td>
-                    <td style={{ padding: "7px 10px", textAlign: "right", fontWeight: 700, fontSize: 12, borderLeft: "2px solid rgba(255,255,255,0.08)", borderBottom: "1px solid " + N.border, color: row.pct >= KILL_TOTAL_THRESHOLD ? N.red : N.text, background: row.pct >= KILL_TOTAL_THRESHOLD ? "rgba(255,115,105,0.12)" : "transparent" }}>
-                      {fmtPct(row.pct)}
-                    </td>
-                    <td style={{ padding: "7px 10px", textAlign: "center", borderBottom: "1px solid " + N.border, borderLeft: "2px solid rgba(255,255,255,0.08)", whiteSpace: "nowrap" }}>
+                                          </td>
+                    <td style={{ padding: "7px 10px", textAlign: "left", borderBottom: "1px solid " + N.border, whiteSpace: "nowrap" }}>
                       {row.killSignal ? (
                         <span title={(row.killSignal.tier === "auto" ? "AUTO KILL \u2014 " : "DEBATE \u2014 ") + row.killSignal.reasons.join(", ")}
-                          style={{ fontSize: 9, fontWeight: 700, color: row.killSignal.tier === "auto" ? N.red : N.orange, background: row.killSignal.tier === "auto" ? "rgba(255,115,105,0.18)" : "rgba(255,163,68,0.12)", border: "1px solid " + (row.killSignal.tier === "auto" ? "rgba(255,115,105,0.4)" : "rgba(255,163,68,0.3)"), padding: "2px 6px", borderRadius: 3, letterSpacing: "0.02em" }}>
-                          {row.killSignal.tier === "auto" ? "\u{1F480} KILL" : "\u26A0 DEBATE"}
+                          style={{ fontSize: 9, fontWeight: 700, color: N.textS, background: "rgba(255,255,255,0.06)", border: "1px solid " + N.border, padding: "2px 7px", borderRadius: 3, letterSpacing: "0.02em" }}>
+                          {row.killSignal.tier === "auto" ? "KILL" : "DEBATE"}
                         </span>
                       ) : row.earlyWarning ? (
                         <span title={row.earlyWarning.direction === "both"
                           ? row.earlyWarning.count + " sizing complaints in both directions \u2014 check size chart, not supplier"
                           : row.earlyWarning.count + " " + (row.earlyWarning.direction === "too_small" ? "Too Small" : "Too Large") + " complaints (\u2265 " + EARLY_WARNING_COUNT + " trigger)"}
-                          style={{ fontSize: 9, fontWeight: 700, color: row.earlyWarning.direction === "both" ? N.orange : N.red, background: row.earlyWarning.direction === "both" ? "rgba(255,163,68,0.12)" : "rgba(255,115,105,0.15)", border: "1px solid " + (row.earlyWarning.direction === "both" ? "rgba(255,163,68,0.3)" : "rgba(255,115,105,0.3)"), padding: "2px 6px", borderRadius: 3, letterSpacing: "0.02em" }}>
-                          {"\u{1F514}"} {row.earlyWarning.count}{" "}{row.earlyWarning.label}
+                          style={{ fontSize: 9, fontWeight: 700, color: N.textS, background: "rgba(255,255,255,0.06)", border: "1px solid " + N.border, padding: "2px 7px", borderRadius: 3, letterSpacing: "0.02em" }}>
+                          {row.earlyWarning.count}{" "}{row.earlyWarning.label}
                         </span>
                       ) : (
                         <span style={{ color: N.textT, fontSize: 10 }}>{"\u2014"}</span>
@@ -1658,6 +1901,8 @@ export default function ComplaintDashboard() {
                           zones={zones}
                           quotes={focusQuotes}
                           aiData={focusAI}
+                          allRows={allComplaints.filter(function (c) { return c.key === row.key; }).sort(function (a, b) { return (b.week || 0) - (a.week || 0); })}
+                          onClose={function () { setFocusedProduct(null); }}
                           storeDomain={STORE_CSVS[selectedStore].domain || ""}
                           storeName={STORE_CSVS[selectedStore].name}
                           contrib={contribData[row.key]}
@@ -1682,7 +1927,7 @@ export default function ComplaintDashboard() {
       {/* Footer */}
       <div style={{ padding: "4px 0", borderTop: "1px solid " + N.border, display: "flex", justifyContent: "space-between", fontSize: 9, color: N.textT, marginBottom: showHoverPanel ? 180 : 0, transition: "margin-bottom 0.2s" }}>
         <span>Complaint Tracker {"\u2014"} {title}</span>
-        <span>{visibleProducts}/{totalProducts} products {"\u00B7"} {Object.keys(stoppedAds).length} stopped {"\u00B7"} Complaints W{weekRange[0]}{"\u2013"}W{weekRange[1]} vs Orders W{ordersWR[0]}{"\u2013"}W{ordersWR[1]} {"\u00B7"} 14d lag {"\u00B7"} Orders 14d = W{latestDataWeek - 1}{"\u2013"}W{latestDataWeek} {"\u00B7"} Min {minSales} sales {"\u00B7"} <span style={{ color: Object.keys(contribData).length === 0 ? N.orange : "inherit" }}>Margin data: {Object.keys(contribData).length} products{Object.keys(contribData).length === 0 ? " \u2014 check contribUrl gid (README)" : ""}</span></span>
+        <span>{visibleProducts}/{totalProducts} products {"\u00B7"} {Object.keys(stoppedAds).length} stopped {"\u00B7"} Complaints W{weekRange[0]}{"\u2013"}W{weekRange[1]} vs Orders W{ordersWR[0]}{"\u2013"}W{ordersWR[1]} {"\u00B7"} 14d lag {"\u00B7"} Orders 14d = W{latestDataWeek - 1}{"\u2013"}W{latestDataWeek} {"\u00B7"} Min {minSales} sales {"\u00B7"} Margin data: {Object.keys(contribData).length} products{Object.keys(contribData).length === 0 ? " \u2014 check contribUrl gid (README)" : ""}</span>
       </div>
 
       {/* Sticky hover panel — quick glance only; disabled while in focus mode */}
@@ -1690,7 +1935,6 @@ export default function ComplaintDashboard() {
         <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "rgba(37, 37, 37, 0.98)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", borderTop: "1px solid rgba(82,156,202,0.3)", boxShadow: "0 -8px 24px rgba(0,0,0,0.4)", padding: "12px 18px", zIndex: 1000, maxHeight: "40vh", overflowY: "auto", fontFamily: FONT, color: N.text }}>
           {stoppedAds[hoveredProduct] && (
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: "rgba(255,115,105,0.08)", border: "1px solid rgba(255,115,105,0.25)", borderRadius: 4, marginBottom: hoveredActions.length > 0 ? 10 : 0, fontSize: 11 }}>
-              <span style={{ fontSize: 14 }}>{"\u{1F6AB}"}</span>
               <span style={{ color: N.red, fontWeight: 700, textTransform: "uppercase", fontSize: 10, letterSpacing: "0.05em" }}>Advertising Stopped</span>
               {stoppedAds[hoveredProduct].stoppedDate && (
                 <span style={{ color: N.textS, fontSize: 10 }}>
@@ -1707,7 +1951,6 @@ export default function ComplaintDashboard() {
           {hoveredActions.length > 0 ? (
             <>
               <div style={{ fontSize: 9, fontWeight: 600, color: N.blue, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-                <span>{"\u26A1"}</span>
                 Action history {"\u2014"} <span style={{ color: N.text }}>{hoveredTitle}</span>
               </div>
               <ActionHistory items={hoveredActions} />
@@ -1716,11 +1959,13 @@ export default function ComplaintDashboard() {
             <div style={{ fontSize: 11, color: N.textS, padding: "4px 0", display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ color: N.textT, fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}>{hoveredTitle}</span>
               <span style={{ color: N.textT }}>{"\u00B7"}</span>
-              <span style={{ color: N.textT, fontStyle: "italic" }}>No actions logged for this product. Click the title to open the focus view.</span>
+              <span style={{ color: N.textT }}>No actions logged for this product. Click the title to open the focus view.</span>
             </div>
           )}
         </div>
       )}
+
+      <FloatingWidgets storeName={STORE_CSVS[selectedStore].name} chatContext={chatContext} reportData={reportData} />
     </div>
   );
 }
