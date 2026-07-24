@@ -66,7 +66,7 @@ function saveCustomRules(rules) {
 }
 function rulesHash(rules) { return rules.length + "x" + rules.join("|").length; }
 function makeAIKey(storeName, rowKey, d) {
-  return "ai15-" + storeName + "-" + rowKey + "-" + d.totalComplaints + "-" + (d.sinceWeek || 0) + "-" + rulesHash(getCustomRules());
+  return "ai16-" + storeName + "-" + rowKey + "-" + d.totalComplaints + "-" + (d.sinceWeek || 0) + "-" + rulesHash(getCustomRules());
 }
 
 /* ── THEME ── */
@@ -1023,15 +1023,20 @@ function FocusPanel(props) {
   }, [row.key, props.storeDomain]);
 
   useEffect(function () {
-    setAds(null);
+    setAds(null); setAdsErr("");
     if (!prod || !prod.url) return;
     var m = prod.url.match(/\/products\/([a-z0-9-]+)/i);
     if (!m) return;
     var alive = true;
     fetch(NOTION_ADS_PATH + "?handle=" + encodeURIComponent(m[1]) + "&store=" + encodeURIComponent(props.storeName || ""))
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (j) { if (alive && j && j.found) setAds(j); })
-      .catch(function () { /* fine */ });
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (x) {
+        if (!alive) return;
+        if (x.j && x.j.found) setAds(x.j);
+        else if (x.j && x.j.error) setAdsErr(x.j.error);
+        else setAdsErr("no matching row in the ad databases");
+      })
+      .catch(function (e) { if (alive) setAdsErr(String(e.message || e)); });
     return function () { alive = false; };
   }, [prod && prod.url, props.storeName]);
   var imgSrc = (prod && prod.image) || props.image || "";
@@ -1040,6 +1045,7 @@ function FocusPanel(props) {
   var stPrev = useState(null); var preview = stPrev[0]; var setPreview = stPrev[1];
   var stAds = useState(null); var ads = stAds[0]; var setAds = stAds[1];
   var stSV = useState(false); var showVariants = stSV[0]; var setShowVariants = stSV[1];
+  var stAE = useState(""); var adsErr = stAE[0]; var setAdsErr = stAE[1];
   var stQC = useState(null); var qc = stQC[0]; var setQC = stQC[1];
   var stQCE = useState(""); var qcErr = stQCE[0]; var setQCErr = stQCE[1];
   var stQCD = useState(false); var qcDone = stQCD[0]; var setQCDone = stQCD[1];
@@ -1098,7 +1104,8 @@ function FocusPanel(props) {
           <button onClick={props.onClose} style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 4, cursor: "pointer", fontFamily: "inherit" }}>Exit (Esc)</button>
         )}
       </div>
-      {qcErr && <div style={{ fontSize: 9, color: N.textT, marginTop: -8 }}>Notion: {qcErr}</div>}
+      {qcErr && <div style={{ fontSize: 9, color: N.textT, marginTop: -8 }}>Notion QC: {qcErr}</div>}
+      {adsErr && <div style={{ fontSize: 9, color: N.textT, marginTop: -8 }}>Notion ads/competitor: {adsErr} {"\u2014"} deploy the latest api/notion-ads.js if this persists</div>}
       {preview && createPortal(
         <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.9)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", animation: "lbFade 0.15s ease" }}>
           <style>{"@keyframes lbFade{from{opacity:0}to{opacity:1}}@keyframes lbPop{from{opacity:0;transform:scale(0.88)}to{opacity:1;transform:scale(1)}}"}</style>
@@ -1202,7 +1209,7 @@ function FocusPanel(props) {
           <div>
             <CategoryGrid row={row} zones={props.zones} sampleSmall={row.sampleSmall} />
             <div style={{ fontSize: 9, color: N.textT, marginTop: 4, lineHeight: 1.5 }}>
-              What percentage of people who had the product in their hands complained? {"\u2014"} complaints {"\u00F7"} orders placed 2+ weeks ago (matched on order-placed date). Recent buyers can{"\u2019"}t have complained yet, so they don{"\u2019"}t count.{row.sampleSmall ? " Under 30 such orders \u2192 counts instead of percentages." : ""}
+              What percentage of people who had the product in their hands complained?
             </div>
             {props.aiData && props.aiData.sinceEdit && (
               <div style={{ marginTop: 6 }}>
@@ -1689,59 +1696,57 @@ export default function ComplaintDashboard() {
     setLoading(true);
     setFocusedProduct(null);
     async function loadData() {
+      var t0 = Date.now();
       var comps = [], ords = [], acts = [], fetched = false;
       var store = STORE_CSVS[selectedStore];
-      if (store) {
-        try {
-          if (store.complaintsUrl) {
-            console.log("[load] fetching complaints CSV\u2026");
-            var cT = await (await fetchT(store.complaintsUrl)).text();
-            console.log("[load] complaints CSV: " + cT.length + " chars");
-            var cD = parseComplaintsCSV(cT, store.name);
-            console.log("[load] complaints parsed: " + cD.length + " rows, with order date: " + cD.filter(function (x) { return x.orderWeek != null; }).length);
-            if (cD.length > 0) { comps = comps.concat(cD); fetched = true; }
-          }
-          if (store.ordersUrl) {
-            console.log("[load] fetching orders CSV\u2026");
-            var oT = await (await fetchT(store.ordersUrl)).text();
-            var oD = parseOrdersCSV(oT);
-            console.log("[load] orders parsed: " + oD.length + " products");
-            if (oD.length > 0) { ords = ords.concat(oD); fetched = true; }
-          }
-        } catch (e) { console.error("Store load fail:", store.name, e); }
-        // Contribution margin (refund rate, col O)
-        try {
-          if (store.contribUrl) {
-            var mT = await (await fetchT(store.contribUrl)).text();
-            var cm = parseContribCSV(mT);
-            console.log("[contrib] parsed " + Object.keys(cm).length + " rows from margin CSV");
-            if (Object.keys(cm).length === 0) console.warn("[contrib] first 300 chars of CSV \u2014 paste this to debug:", mT.slice(0, 300));
-            setContribData(cm);
-          } else setContribData({});
-        } catch (e) { setContribData({}); }
-      }
-      // Complaint Detail (optional, global)
+      var grab = function (url) {
+        return url ? fetchT(url).then(function (r) { return r.text(); }).catch(function (e) { console.warn("[load] fetch failed:", String(url).slice(0, 60), e.message || e); return null; }) : Promise.resolve(null);
+      };
+      // ALL CSVs in parallel — one round trip instead of seven sequential ones
+      var res = await Promise.all([
+        grab(store && store.complaintsUrl),
+        grab(store && store.ordersUrl),
+        grab(store && store.contribUrl),
+        grab(COMPLAINT_DETAIL_CSV_URL),
+        grab(ACTIONS_CSV_URL),
+        grab(STOPPED_ADS_CSV_URL),
+        grab(CONFIG_CSV_URL),
+      ]);
+      console.log("[load] all CSVs fetched in " + (Date.now() - t0) + "ms");
+      var cT = res[0], oT = res[1], mT = res[2], dT = res[3], aT = res[4], stoppedT = res[5], cfgT = res[6];
       try {
-        if (COMPLAINT_DETAIL_CSV_URL) {
-          var dT = await (await fetchT(COMPLAINT_DETAIL_CSV_URL)).text();
+        if (cT) {
+          var cD = parseComplaintsCSV(cT, store.name);
+          console.log("[load] complaints parsed: " + cD.length + " rows, with order date: " + cD.filter(function (x) { return x.orderWeek != null; }).length);
+          if (cD.length > 0) { comps = comps.concat(cD); fetched = true; }
+        }
+        if (oT) {
+          var oD = parseOrdersCSV(oT);
+          console.log("[load] orders parsed: " + oD.length + " products");
+          if (oD.length > 0) { ords = ords.concat(oD); fetched = true; }
+        }
+      } catch (e) { console.error("Store load fail:", store && store.name, e); }
+      try {
+        if (mT) {
+          var cm = parseContribCSV(mT);
+          console.log("[contrib] parsed " + Object.keys(cm).length + " rows from margin CSV");
+          setContribData(cm);
+        } else setContribData({});
+      } catch (e) { setContribData({}); }
+      try {
+        if (dT) {
           var dD = parseComplaintsCSV(dT, store ? store.name : "");
-          // Only keep detail rows that actually carry a summary; merge in.
           comps = comps.concat(dD.filter(function (c) { return c.summary; }).map(function (c) { return Object.assign({}, c, { detailOnly: true }); }));
         }
       } catch (e) { /* no-op */ }
+      try { if (aT) acts = parseActionsCSV(aT); } catch (e) { /* no-op */ }
+      try { if (stoppedT) setSheetStopped(parseStoppedAdsCSV(stoppedT)); } catch (e) { /* no-op */ }
       try {
-        var aT = await (await fetchT(ACTIONS_CSV_URL)).text();
-        acts = parseActionsCSV(aT);
-      } catch (e) { /* no-op */ }
-      try {
-        var stoppedT = await (await fetchT(STOPPED_ADS_CSV_URL)).text();
-        setSheetStopped(parseStoppedAdsCSV(stoppedT));
-      } catch (e) { /* no-op */ }
-      try {
-        var cfgT = await (await fetchT(CONFIG_CSV_URL)).text();
-        var cfg = parseConfigCSV(cfgT, DEFAULT_ZONES);
-        setZones(cfg.zones);
-        if (cfg.minSales != null) setMinSales(cfg.minSales);
+        if (cfgT) {
+          var cfg = parseConfigCSV(cfgT, DEFAULT_ZONES);
+          setZones(cfg.zones);
+          if (cfg.minSales != null) setMinSales(cfg.minSales);
+        }
       } catch (e) { /* no-op */ }
       if (store) setTitle(store.name);
 
@@ -2005,11 +2010,15 @@ export default function ComplaintDashboard() {
         var fa = a.firstWeek == null ? -Infinity : a.firstWeek;
         var fb = b.firstWeek == null ? -Infinity : b.firstWeek;
         d = fb - fa; // desc = newest first, asc = longest running first
-      } else d = b.pct - a.pct; // default: total %
+      } else if (sortBy === "refund") {
+        var ra = contribData[a.key] && contribData[a.key].refundRate != null ? contribData[a.key].refundRate : -1;
+        var rb = contribData[b.key] && contribData[b.key].refundRate != null ? contribData[b.key].refundRate : -1;
+        d = rb - ra;
+      } else d = b.pct - a.pct; // default: complaint %
       return d * dir;
     });
     return rows;
-  }, [filteredProductData, sortBy, sortDir, ordersByKey, latestDataWeek, allComplaints, weekRange]);
+  }, [filteredProductData, sortBy, sortDir, ordersByKey, latestDataWeek, allComplaints, weekRange, contribData]);
 
   // Actions per product with before/after
   var actionsByProduct = useMemo(function () {
@@ -2376,7 +2385,7 @@ export default function ComplaintDashboard() {
     );
   };
 
-  var visibleColCount = statusFilter === "active" ? 7 : 8;
+  var visibleColCount = statusFilter === "active" ? 8 : 9;
   var focusedRow = focusedProduct ? heatmapData.find(function (r) { return r.key === focusedProduct; }) : null;
   // Cache the last seen row: after "Log action" the status flips to Edited and the row can drop
   // out of the filtered view instantly — without this cache the panel vanished into a black screen.
@@ -2432,7 +2441,7 @@ export default function ComplaintDashboard() {
         return (async function () {
           try {
             var d = buildAIPayload(r.key);
-            if (!d || d.totalComplaints === 0) { noActionKeys.push(r.key); return; } // zero complaints = nothing to review
+            if (!d || d.totalComplaints === 0) { if (r.status !== "New arrival") noActionKeys.push(r.key); return; } // zero complaints = nothing to review (but ALWAYS eyeball new arrivals)
             var k = makeAIKey(STORE_CSVS[selectedStore].name, r.key, d);
             var cached = window.localStorage.getItem(k);
             var j = null;
@@ -2448,8 +2457,8 @@ export default function ComplaintDashboard() {
               else j = null;
             }
             var allSafe = d.catStats.every(function (c2) { return (c2.dashboardPct || 0) < c2.warningAt; });
-            if (j && (allSafe || j.noActionNeeded === true || NO_ACTION_RE.test(String(j.summary || "") + " " + String(j.recommendation || "")))) {
-              noActionKeys.push(r.key); // applies to Active, New arrivals, and Edited alike
+            if (r.status !== "New arrival" && j && (allSafe || j.noActionNeeded === true || NO_ACTION_RE.test(String(j.summary || "") + " " + String(j.recommendation || "")))) {
+              noActionKeys.push(r.key); // Active + Edited only — New arrivals are NEVER auto-checked, always review them by hand
             }
           } catch (e) { /* keep going */ }
         })();
@@ -2604,9 +2613,10 @@ export default function ComplaintDashboard() {
                 <th style={{ background: N.bgS, padding: "6px 4px", position: "sticky", top: 0, width: 28 }}></th>
                 {[
                   { label: sortableHeader("Week Started", "newest"), align: "left", w: 96 },
-                  { label: "Status", align: "left", w: 78 },
+                  { label: "Status", align: "left", w: 86 },
                   { label: sortableHeader("Orders 14d", "orders7d"), align: "left", w: 86 },
-                  { label: sortableHeader("Total %", "pct"), align: "left", w: 70 },
+                  { label: sortableHeader("Complaint %", "pct"), align: "left", w: 78 },
+                  { label: sortableHeader("Refund %", "refund"), align: "left", w: 70 },
                   { label: "Signal", align: "left", w: 118 },
                   { label: "Product", align: "left" },
                 ].concat(statusFilter === "active" ? [] : [{ label: statusFilter === "edited" ? "Last edit" : "Last edit / issue", align: "left", w: 240 }]).map(function (h, i) {
@@ -2664,6 +2674,12 @@ export default function ComplaintDashboard() {
                     </td>
                     <td style={{ padding: "5px 7px", textAlign: "left", fontWeight: 700, fontSize: 12, borderBottom: "1px solid " + N.border, color: row.pct >= KILL_TOTAL_THRESHOLD ? N.red : N.text, background: row.pct >= KILL_TOTAL_THRESHOLD ? "rgba(255,115,105,0.12)" : "transparent" }}>
                       {row.sampleSmall ? row.complaints + "\u00D7" : fmtPct(row.pct)}
+                    </td>
+                    <td style={{ padding: "5px 7px", textAlign: "left", color: N.textS, borderBottom: "1px solid " + N.border, fontVariantNumeric: "tabular-nums" }}>
+                      {(function () {
+                        var rr = contribData[row.key] && contribData[row.key].refundRate != null ? contribData[row.key].refundRate : null;
+                        return rr != null ? rr.toFixed(1) + "%" : "\u2014";
+                      })()}
                     </td>
                     <td style={{ padding: "5px 7px", textAlign: "left", borderBottom: "1px solid " + N.border, whiteSpace: "nowrap" }}>
                       {row.killSignal ? (
