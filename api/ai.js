@@ -1,54 +1,51 @@
-// Vercel serverless function — AI complaint analysis.
-// Requires env var ANTHROPIC_API_KEY (Vercel dashboard → Settings → Environment Variables).
-// The key stays on the server; it is NEVER shipped to the browser.
+// Vercel serverless function — AI complaint analysis (rates + trends, not counts).
+// Requires env var ANTHROPIC_API_KEY.
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return res.status(500).json({ error: "ANTHROPIC_API_KEY not set in Vercel env" });
 
   const d = req.body || {};
-  const counts = Object.entries(d.counts || {})
-    .map(([k, v]) => `${k}: ${v}`)
-    .join(", ");
-  const tickets = (d.summaries || [])
-    .map((t) => `- [${t.type}, W${t.week}] ${String(t.text).slice(0, 300)}`)
+  const la = d.lastAction;
+  const editLine = la
+    ? `Last edit (week ${la.week}, target: ${la.category}): "${la.action}". Rate before: ${la.beforePct != null ? la.beforePct.toFixed(1) + "%" : "?"} → after: ${la.afterPct != null ? la.afterPct.toFixed(1) + "%" : "?"} (${la.afterOrders || 0} orders after).`
+    : "Never edited.";
+  const tickets = (d.summaries || []).slice(0, 25)
+    .map((t) => `- [${t.type}] ${String(t.text).slice(0, 200)}`)
     .join("\n");
 
-  const prompt = `You are analyzing customer complaints for an e-commerce fashion product so the owner can decide what to fix.
+  const prompt = `You analyze complaint data for one fashion product. The owner can read raw numbers himself — your ONLY job is to find the real gap.
 
-Product: ${d.product}
-${d.sinceWeek ? `Only feedback SINCE the last edit (week ${d.sinceWeek}). Last edit: ${d.lastAction ? d.lastAction.action + " (" + d.lastAction.category + ")" : "unknown"}` : "All feedback (product never edited)."}
+Category rates (complaints as % of orders), with trend and thresholds. Below warningAt = fine. warningAt-problemAt = warning. At/above problemAt = problem:
+${JSON.stringify(d.catStats || [])}
+
+${editLine}
 Orders in window: ${d.orders}. Total complaints: ${d.totalComplaints}.
-Complaint counts by category: ${counts || "none"}
 
-Ticket texts (may be empty):
-${tickets || "(no ticket texts — use the category counts)"}
+Ticket texts (use ONLY to explain WHY a problematic category is problematic, e.g. "runs large at the waist" — not to repeat counts):
+${tickets || "(none)"}
+
+Hard rules:
+- Summary: max 3 bullets ("\u2022 "), each under 15 words, 5th grade language.
+- ONLY mention categories in the warning/problem zone, or with recentPct clearly rising toward warning. SKIP everything fine. Do not mention safe categories at all.
+- Talk in rates and direction (rising/falling/flat) — NEVER raw counts.
+- If there was an edit: one bullet — did the target category's rate drop after it? (working / not working / too early: under 30 orders after).
+- If nothing is in warning/problem and nothing is rising: exactly one bullet: "No real problem \u2014 all rates in the safe zone."
+- Recommendation: exactly 1 bullet, the single most impactful fix. If nothing is wrong: "\u2022 Nothing \u2014 leave this product alone."
 
 Respond with ONLY valid JSON, no markdown fences:
-{"summary": "2-3 short sentences: the main problem(s), in plain simple language, with rough numbers", "recommendation": "1-2 sentences: the single most impactful concrete change to make (e.g. size chart adjustment, supplier swap, photo fix, kill product). If the last edit clearly worked or didn't, say so."}`;
+{"summary": "...", "recommendation": "..."}`;
 
   try {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: {
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 500,
-        messages: [{ role: "user", content: prompt }],
-      }),
+      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 500, messages: [{ role: "user", content: prompt }] }),
     });
     const j = await r.json();
     if (!r.ok) return res.status(502).json({ error: j.error?.message || "Anthropic API error" });
-    const text = (j.content || [])
-      .filter((b) => b.type === "text")
-      .map((b) => b.text)
-      .join("");
-    const clean = text.replace(/```json|```/g, "").trim();
-    const parsed = JSON.parse(clean);
+    const text = (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
+    const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
     return res.status(200).json({ summary: parsed.summary, recommendation: parsed.recommendation });
   } catch (e) {
     return res.status(500).json({ error: String(e.message || e) });
