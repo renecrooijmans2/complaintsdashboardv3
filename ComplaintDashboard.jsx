@@ -2059,10 +2059,10 @@ export default function ComplaintDashboard() {
 
       {/* Amber's weekly workflow */}
       <div style={Object.assign({ background: N.bgC, border: "1px solid " + N.border, borderRadius: 6, padding: "10px 14px", display: "flex", gap: 18, alignItems: "baseline", flexWrap: "wrap" }, dimUI)}>
-        <span style={{ fontSize: 10, fontWeight: 700, color: N.text, whiteSpace: "nowrap" }}>Weekly review {"\u2014"} every product, once a week. Fix it or kill it.</span>
-        <span style={{ fontSize: 10, color: N.textS }}><span style={{ color: N.textT, fontWeight: 700 }}>1.</span> Work top to bottom: most orders first (default view). Open each product, read the AI analysis, act.</span>
-        <span style={{ fontSize: 10, color: N.textS }}><span style={{ color: N.textT, fontWeight: 700 }}>2.</span> Status {"\u2192"} Edited: is every edit working? Follow up on anything stuck (see the Last edit column).</span>
-        <span style={{ fontSize: 10, color: N.textS }}><span style={{ color: N.textT, fontWeight: 700 }}>3.</span> Sort Week Started, newest first: fix fresh products BEFORE they scale {"\u2014"} 1-2 early complaints is already a signal. Red tags first.</span>
+        <span style={{ fontSize: 10, fontWeight: 700, color: N.text, whiteSpace: "nowrap" }}>Weekly review {"\u2014"} every product, once a week. Fix it or kill it.</span><br>
+        <span style={{ fontSize: 10, color: N.textS }}><span style={{ color: N.textT, fontWeight: 700 }}>1.</span> Work top to bottom: most orders first (default view). Open each product, read the AI analysis, act.</span><br>
+        <span style={{ fontSize: 10, color: N.textS }}><span style={{ color: N.textT, fontWeight: 700 }}>2.</span> Status {"\u2192"} Edited: is every edit working? Follow up on anything stuck (see the Last edit column).</span><br>
+        <span style={{ fontSize: 10, color: N.textS }}><span style={{ color: N.textT, fontWeight: 700 }}>3.</span> Sort Week Started, newest first: fix fresh products BEFORE they scale {"\u2014"} 1-2 early complaints is already a signal. Red tags first.</span><br>
       </div>
 
       {/* Table */}
