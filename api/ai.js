@@ -36,10 +36,10 @@ AUTHORITATIVE effect numbers — quote these EXACTLY, never recompute or replace
   const textPrompt = `You analyze one fashion e-commerce product (customers: US women 45-65). The owner reads raw numbers himself — your job: find the real gap and hand him a ready-to-use fix.
 
 Category complaint rates with trend and thresholds. Below warningAt = fine; warningAt-problemAt = warning; >= problemAt = problem.
-NUMBER SOURCE RULES (critical — the owner compares your text against his dashboard):
-- "dashboardPct" is THE number shown on the owner's dashboard tiles. When you name a category's rate, use dashboardPct EXACTLY — it must match his screen digit-for-digit.
-- recentPct/priorPct are trend extras over a DIFFERENT window; when you use one, always name the window in brackets, e.g. "9.7% recent (${d.windows ? d.windows.recentTrend : "recent window"})".
-- recentPct/priorPct are null when that window had under 30 orders — the sample is too small to be a rate. When null, NEVER state a recent rate or claim a spike; at most say "a few early complaints came in (small sample)".
+NUMBER RULES (critical — the owner compares your text against his dashboard):
+- Every rate here answers ONE question: "what percentage of people who had the product in their hands complained?" = complaints ÷ MATURED orders (orders placed 2+ weeks ago, matched on order-placed date). Recent buyers can't have complained yet and are excluded from the denominator.
+- "dashboardPct" is THE number on the owner's dashboard tiles and the ONLY rate that exists. Quote it digit-for-digit. NEVER compute, derive, or invent another percentage. "recentCount" is a plain complaint count, never a rate.
+- If sampleTooSmall is true (under 30 matured orders): there are NO valid rates for this product. Speak only in counts ("3 complaints on a small sample") and recommend waiting for more matured orders unless a complaint describes something categorically broken.
 Windows: ${JSON.stringify(d.windows || {})}
 ${JSON.stringify(d.catStats || [])}
 
