@@ -47,10 +47,10 @@ var ACTIONS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTebDK0L1
 var CONFIG_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTebDK0L1zu6vE8T7NGW6352-RzjHc4DHGfWH7YjADDGn0Z9J18K6GvlpmHCX6-EpjgZ8KjTD0J20Df/pub?gid=1331895582&single=true&output=csv";
 var STOPPED_ADS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTebDK0L1zu6vE8T7NGW6352-RzjHc4DHGfWH7YjADDGn0Z9J18K6GvlpmHCX6-EpjgZ8KjTD0J20Df/pub?gid=419605787&single=true&output=csv";
 
-// Google Apps Script Web App URL — enables logging Actions / Stopped Advertising
-// straight into the Google Sheet from the dashboard (with undo).
-// Setup: see apps-script/Code.gs + README. Leave "" to hide the buttons.
-var APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyPf4MYQO4r4NB9yCAa1S7zrMGCcvMCrCuEJGwJfZScPfmGCgKfahIW2ugh9MqDhr0/exec";
+// "Complaint Detail" tab — per-ticket summaries.
+// TODO(René): open the Complaint Detail tab, copy the gid from the URL, paste below.
+// Leave "" and the dashboard falls back to any summary column found in the per-store complaints tabs.
+var COMPLAINT_DETAIL_CSV_URL = "";
 
 // Google Apps Script Web App URL — enables logging Actions / Stopped Advertising
 // straight into the Google Sheet from the dashboard (with undo).
@@ -66,7 +66,7 @@ function saveCustomRules(rules) {
 }
 function rulesHash(rules) { return rules.length + "x" + rules.join("|").length; }
 function makeAIKey(storeName, rowKey, d) {
-  return "ai9-" + storeName + "-" + rowKey + "-" + d.totalComplaints + "-" + (d.sinceWeek || 0) + "-" + rulesHash(getCustomRules());
+  return "ai13-" + storeName + "-" + rowKey + "-" + d.totalComplaints + "-" + (d.sinceWeek || 0) + "-" + rulesHash(getCustomRules());
 }
 
 /* ── THEME ── */
@@ -108,7 +108,13 @@ var DEFAULT_ZONES = {
 var MIN_TRUSTWORTHY_ORDERS = 30;
 var MIN_CONFIDENT_ORDERS = 100;
 
-var LAG_WEEKS = 2; // fixed 14-day shipping lag
+var LAG_WEEKS = 2; // fallback shipping lag, used ONLY when a complaint has no exact order-placed date
+// The order week a complaint belongs to: exact (from the Shopify-enriched "order placed"
+// column) when available, otherwise complaint week minus the 2-week shipping fallback.
+function effOrderWeek(c) {
+  if (c.orderWeek != null) return c.orderWeek;
+  return c.week != null ? c.week - LAG_WEEKS : null;
+}
 
 var EARLY_WARNING_COUNT = 5;
 var EARLY_WARNING_MIN_ORDERS = 30;
@@ -213,7 +219,9 @@ function parseComplaintsCSV(text, storeName) {
     if (c.indexOf("complaint") !== -1 && c.indexOf("type") !== -1) ci.type = i;
     // Optional ticket summary column (also how "Complaint Detail" is parsed)
     if (ci.summary == null && (c.indexOf("summary") !== -1 || c.indexOf("detail") !== -1 || c.indexOf("quote") !== -1 || c.indexOf("description") !== -1 || c === "notes" || c === "note")) ci.summary = i;
+    if (c.indexOf("order") !== -1 && c.indexOf("placed") !== -1) ci.placed = i;
   });
+  if (ci.placed == null) ci.placed = 8; // column I by position, per the sheet layout
   var out = [];
   for (var i = hi + 1; i < rows.length; i++) {
     var r = rows[i];
@@ -223,7 +231,10 @@ function parseComplaintsCSV(text, storeName) {
     if (!pid && !rawTitle) continue;
     registerId(pid, rawTitle);
     var ds = (r[ci.date] || "").trim();
+    var placedStr = (r[ci.placed] || "").trim();
+    var ow = placedStr && placedStr !== "not-found" ? weekFromDateStr(placedStr) : null;
     out.push({
+      orderWeek: ow,
       productId: pid,
       key: pid || ("title:" + mergeKey(rawTitle)),
       title: cleanTitle(rawTitle),
@@ -530,9 +541,8 @@ function loadCheckedProducts() {
     if (!raw) return { weekAnchor: getCurrentMondayISO(), products: {} };
     var parsed = JSON.parse(raw);
     var currentMonday = getCurrentMondayISO();
-    if (parsed.weekAnchor !== currentMonday) {
-      return { weekAnchor: currentMonday, products: {} };
-    }
+    // v4.1: checks persist across weeks — they reset only when "Run all recommendations" is pressed.
+    parsed.weekAnchor = currentMonday;
     return parsed;
   } catch (e) {
     return { weekAnchor: getCurrentMondayISO(), products: {} };
@@ -601,7 +611,7 @@ function StatusChip(props) {
    ══════════════════════════════════════════ */
 function ActionHistory(props) {
   var items = props.items || [];
-  var onUndo = props.onUndo;
+  var onUndo = props.onUndo; var onEdit = props.onEdit;
   if (items.length === 0) {
     return <div style={{ fontSize: 11, color: N.textT, padding: "4px 0" }}>No actions logged for this product.</div>;
   }
@@ -632,6 +642,12 @@ function ActionHistory(props) {
               {a.date && <span style={{ fontSize: 9, color: N.textT }}>{a.date}</span>}
               {a.status && <span style={{ fontSize: 9, color: a.status === "Active" || a.status === "Confirmed" ? N.green : N.orange, background: "rgba(255,255,255,0.05)", padding: "2px 6px", borderRadius: 3 }}>{a.status}</span>}
               {a.pending && <span style={{ fontSize: 9, color: N.orange }}>{"saving\u2026"}</span>}
+              {canUndo && !a.pending && onEdit && (
+                <button onClick={function () { onEdit(a); }} title="Edit this log entry"
+                  style={{ background: "transparent", border: "1px solid rgba(82,156,202,0.35)", color: N.blue, fontSize: 9, padding: "1px 7px", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>
+                  Edit
+                </button>
+              )}
               {canUndo && !a.pending && (
                 <button onClick={function () { onUndo(a); }} title="Remove this action from the sheet"
                   style={{ background: "transparent", border: "1px solid rgba(255,115,105,0.3)", color: N.red, fontSize: 9, padding: "1px 7px", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>
@@ -728,16 +744,33 @@ function AIPanel(props) {
   function chartFromScreenshot(file) {
     if (!file || !ai.data) return;
     setChartBusy(true); setChartErr("");
-    var reader = new FileReader();
-    reader.onload = function () {
-      var b64 = String(reader.result).split(",")[1];
+    // Downscale client-side: retina screenshots easily exceed the serverless body limit.
+    var img = new Image();
+    var objUrl = URL.createObjectURL(file);
+    img.onload = function () {
+      var MAX = 1600;
+      var scale = Math.min(1, MAX / Math.max(img.width, img.height));
+      var canvas = document.createElement("canvas");
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(objUrl);
+      var dataUrl = canvas.toDataURL("image/jpeg", 0.88);
+      var b64 = dataUrl.split(",")[1];
       fetch(SIZECHART_API_PATH, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: b64, mediaType: file.type || "image/png", instructions: (ai.data.deliverable || "") + "\n" + (ai.data.recommendation || "") }),
-      }).then(function (r) { return r.json(); }).then(function (j) {
+        body: JSON.stringify({ imageBase64: b64, mediaType: "image/jpeg", instructions: (ai.data.deliverable || "") + "\n" + (ai.data.recommendation || "") }),
+      }).then(function (r) {
+        return r.json().catch(function () { throw new Error("Server sent no JSON (HTTP " + r.status + ") \u2014 likely the OLD api/sizechart.js is still deployed. Upload the new one from the zip."); });
+      }).then(function (j) {
         setChartBusy(false);
-        if (j.error) { setChartErr(j.error); return; }
+        if (j.error) {
+          setChartErr(j.error.indexOf("invalid product url") !== -1
+            ? "Your Vercel is still running the OLD api/sizechart.js (it doesn't know the screenshot mode). Upload api/sizechart.js from the latest zip and redeploy."
+            : j.error);
+          return;
+        }
         var blob = new Blob([j.html], { type: "text/html" });
         var a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
@@ -745,7 +778,8 @@ function AIPanel(props) {
         document.body.appendChild(a); a.click(); a.remove();
       }).catch(function (e) { setChartBusy(false); setChartErr(String(e.message || e)); });
     };
-    reader.readAsDataURL(file);
+    img.onerror = function () { setChartBusy(false); setChartErr("Could not read that image file"); };
+    img.src = objUrl;
   }
   var stPE = useState(""); var packErr = stPE[0]; var setPackErr = stPE[1];
 
@@ -919,6 +953,13 @@ function FocusPanel(props) {
   var stA = useState(false); var showForm = stA[0]; var setShowForm = stA[1];
   var stF = useState({ category: "too_small", action: "", expectedEffect: "", notes: "" });
   var form = stF[0]; var setForm = stF[1];
+  var stEA = useState(null); var editingAction = stEA[0]; var setEditingAction = stEA[1];
+
+  function startEditAction(a) {
+    setForm({ category: a.category || "too_small", action: a.action || "", expectedEffect: a.expectedEffect || "", notes: a.notes || "" });
+    setEditingAction(a);
+    setShowForm(true);
+  }
   var stB = useState(false); var busy = stB[0]; var setBusy = stB[1];
   var stE = useState(""); var err = stE[0]; var setErr = stE[1];
   var stSN = useState(""); var stopNote = stSN[0]; var setStopNote = stSN[1];
@@ -998,9 +1039,13 @@ function FocusPanel(props) {
   function submitAction() {
     if (!form.action.trim()) { setErr("Action description is required."); return; }
     setBusy(true); setErr("");
-    props.onLogAction(Object.assign({}, form))
+    var doLog = editingAction
+      ? Promise.resolve(props.onUndoAction(editingAction)).then(function () { return props.onLogAction(Object.assign({}, form, { week: editingAction.week })); })
+      : props.onLogAction(Object.assign({}, form));
+    doLog
       .then(function () {
-        setBusy(false); setShowForm(false); setForm({ category: "too_small", action: "", expectedEffect: "", notes: "" });
+        setBusy(false); setShowForm(false); setEditingAction(null);
+        setForm({ category: "too_small", action: "", expectedEffect: "", notes: "" });
         setSavedMsg(true);
         setTimeout(function () { setSavedMsg(false); if (props.onClose) props.onClose(); }, 1100);
       })
@@ -1144,7 +1189,15 @@ function FocusPanel(props) {
                       var pc = props.aiData.sinceEdit.perCat[c.key] || { count: 0, pct: 0 };
                       m[c.key] = pc.pct; m[c.key + "_count"] = pc.count; return m;
                     }, {})} />
-                    <div style={{ fontSize: 9, color: N.textT, marginTop: 3 }}>Based on {props.aiData.sinceEdit.orders} lag-corrected orders since W{props.aiData.sinceEdit.week}</div>
+                    {props.aiData.sinceEdit.tooEarly ? (
+                      <div style={{ fontSize: 9, color: N.orange, marginTop: 3 }}>Too early {"\u2014"} no post-edit orders with feedback yet.</div>
+                    ) : (
+                      <div style={{ fontSize: 9, color: N.textT, marginTop: 3 }}>
+                        Complaints matched to orders placed since the W{props.aiData.sinceEdit.week} edit ({props.aiData.sinceEdit.orders} orders)
+                        {props.aiData.sinceEdit.inFlight > 0 ? " \u00B7 " + props.aiData.sinceEdit.inFlight + " newer complaint(s) excluded \u2014 their orders predate the edit" : ""}
+                        {" \u00B7 " + props.aiData.sinceEdit.exactDatePct + "% exact order dates, rest week\u22122 fallback"}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1212,7 +1265,7 @@ function FocusPanel(props) {
               <input value={form.notes} onChange={function (e) { setForm(Object.assign({}, form, { notes: e.target.value })); }} style={inputStyle} />
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              <button disabled={busy} onClick={submitAction} style={btnStyle("#fff", N.blue, N.blue)}>{busy ? "Saving\u2026" : "Save to sheet"}</button>
+              <button disabled={busy} onClick={submitAction} style={btnStyle("#fff", N.blue, N.blue)}>{busy ? "Saving\u2026" : (editingAction ? "Update log entry" : "Save to sheet")}</button>
               <button disabled={busy} onClick={function () { setShowForm(false); }} style={btnStyle(N.textS, "transparent", N.border)}>Cancel</button>
             </div>
           </div>
@@ -1227,7 +1280,7 @@ function FocusPanel(props) {
             <button disabled={busy} onClick={function () { setShowStopForm(false); }} style={btnStyle(N.textS, "transparent", N.border)}>Cancel</button>
           </div>
         )}
-        <ActionHistory items={props.actionItems} onUndo={props.onUndoAction} />
+        <ActionHistory items={props.actionItems} onUndo={props.onUndoAction} onEdit={startEditAction} />
       </div>
 
       {/* All complaints, 1 row each */}
@@ -1417,7 +1470,12 @@ function FloatingWidgets(props) {
           </div>
           {rules.length > 0 && (
             <div style={{ padding: "8px 14px", borderBottom: "1px solid " + N.border, maxHeight: 120, overflowY: "auto" }}>
-              <div style={{ fontSize: 9, fontWeight: 700, color: N.textT, marginBottom: 4 }}>Active rules ({rules.length})</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+                <span style={{ fontSize: 9, fontWeight: 700, color: N.textT }}>Active rules ({rules.length})</span>
+                <button onClick={function () { try { navigator.clipboard.writeText(rules.map(function (r) { return "- " + r; }).join("\n")); } catch (e) { /* no-op */ } }}
+                  title="Copy all rules \u2014 paste them into api/ai.js in GitHub to make them permanent defaults"
+                  style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 8.5, padding: "1px 7px", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>Copy all (for GitHub)</button>
+              </div>
               {rules.map(function (r, i) {
                 return (
                   <div key={i} style={{ display: "flex", gap: 8, alignItems: "baseline", fontSize: 10, color: N.textS, padding: "2px 0" }}>
@@ -1545,6 +1603,11 @@ export default function ComplaintDashboard() {
   var stSort = useState("orders7d"); var sortBy = stSort[0]; var setSortBy = stSort[1];
   var stDir = useState("desc"); var sortDir = stDir[0]; var setSortDir = stDir[1];
   var stSf = useState("active"); var statusFilter = stSf[0]; var setStatusFilter = stSf[1];
+  var stClosing = useState(false); var closing = stClosing[0]; var setClosing = stClosing[1];
+  var lastRowRef = useRef(null);
+  var closeRef = useRef(null);
+  var stToast = useState(null); var toast = stToast[0]; var setToast = stToast[1];
+  var stRun = useState({ running: false, done: 0, total: 0 }); var runState = stRun[0]; var setRunState = stRun[1];
   var stContrib = useState({}); var contribData = stContrib[0]; var setContribData = stContrib[1];
   // Optimistic writes (appear instantly, survive until CSV reload confirms them)
   var stLA = useState([]); var localActions = stLA[0]; var setLocalActions = stLA[1];
@@ -1687,7 +1750,15 @@ export default function ComplaintDashboard() {
   }, [allComplaints, allOrders]);
 
   var complaints = useMemo(function () {
-    return allComplaints.filter(function (c) { return !c.detailOnly && c.week != null && c.week >= weekRange[0] && c.week <= weekRange[1]; });
+    // Numerator matches the denominator's order window exactly: a complaint counts in the
+    // window its ORDER was placed in (exact date when enriched, week-2 fallback otherwise).
+    var lo = Math.max(1, weekRange[0] - LAG_WEEKS);
+    var hi = Math.max(1, weekRange[1] - LAG_WEEKS);
+    return allComplaints.filter(function (c) {
+      if (c.detailOnly) return false;
+      var ow = effOrderWeek(c);
+      return ow != null && ow >= lo && ow <= hi;
+    });
   }, [allComplaints, weekRange]);
 
   var ordersWR = [Math.max(1, weekRange[0] - LAG_WEEKS), Math.max(1, weekRange[1] - LAG_WEEKS)];
@@ -1767,9 +1838,18 @@ export default function ComplaintDashboard() {
       // Current week is always partial → count latest data week + the week before it.
       var orders7d = latestDataWeek > 0 ? ((wk[latestDataWeek] || 0) + (wk[latestDataWeek - 1] || 0)) : null;
       var isStopped = !!stoppedAds[k];
+      // First week with real volume (>=20 orders, or a 3x jump to >=10)
+      var fsw = null;
+      var wNumsS = Object.keys(wk).map(Number).sort(function (x, y) { return x - y; });
+      for (var wi2 = 0; wi2 < wNumsS.length; wi2++) {
+        var w2 = wNumsS[wi2]; var v2 = wk[w2] || 0; var pv2 = wk[w2 - 1] || 0;
+        if (v2 >= 20 || (v2 >= 10 && v2 >= 3 * Math.max(pv2, 1))) { fsw = w2; break; }
+      }
+      var isNewArrival = fsw != null && fsw >= latestDataWeek - 2; // running ~3 weeks max
       var status = isStopped ? "Stopped"
                  : (orders7d != null && orders7d < INACTIVE_SALES_7D) ? "Inactive"
                  : editedRecently[k] ? "Edited"
+                 : isNewArrival ? "New arrival"
                  : "Active";
       return Object.assign({
         key: k,
@@ -1895,22 +1975,27 @@ export default function ComplaintDashboard() {
     actions.forEach(function (a) {
       if (!a.week) return;
       if (!map[a.key]) map[a.key] = [];
+      // All windows below are ORDER weeks: a complaint belongs to the week its order was
+      // placed (exact Shopify date when enriched, week-2 fallback otherwise). An edit in
+      // W30 is judged purely on complaints from orders placed W30+ — no lag guessing.
       var aw = a.week;
       var beforeStart = Math.max(1, aw - 4);
       var beforeEnd = aw - 1;
       var afterStart = aw;
-      var afterEnd = weekRange[1];
+      var afterEnd = Math.max(1, weekRange[1] - LAG_WEEKS);
       var ordersFor = function (start, end) {
         var t = 0;
         var wk = ordersByKey[a.key] ? ordersByKey[a.key].weekOrders : {};
-        for (var w = start - LAG_WEEKS; w <= end - LAG_WEEKS; w++) {
+        for (var w = start; w <= end; w++) {
           if (w >= 1) t += wk[w] || 0;
         }
         return t;
       };
       var complaintsFor = function (start, end) {
         return allComplaints.filter(function (c) {
-          return !c.detailOnly && c.key === a.key && c.type === a.category && c.week >= start && c.week <= end;
+          if (c.detailOnly || c.key !== a.key || c.type !== a.category) return false;
+          var ow = effOrderWeek(c);
+          return ow != null && ow >= start && ow <= end;
         }).length;
       };
       var bo = ordersFor(beforeStart, beforeEnd);
@@ -1950,30 +2035,44 @@ export default function ComplaintDashboard() {
     acts.forEach(function (a) {
       if (a.week != null && (sinceWeek == null || a.week > sinceWeek)) { sinceWeek = a.week; lastAction = a; }
     });
+    // Post-edit = complaints whose ORDER was placed in/after the edit week (exact Shopify
+    // date when enriched, week-2 fallback otherwise). No shipping-lag guessing needed.
     var rows = allComplaints.filter(function (c) {
-      return c.key === aiKey && !c.detailOnly && (sinceWeek == null || (c.week || 0) >= sinceWeek);
+      if (c.key !== aiKey || c.detailOnly) return false;
+      if (sinceWeek == null) return true;
+      var ow = effOrderWeek(c);
+      return ow != null && ow >= sinceWeek;
     });
+    var inFlight = sinceWeek == null ? 0 : allComplaints.filter(function (c) {
+      if (c.key !== aiKey || c.detailOnly || c.week == null) return false;
+      var ow = effOrderWeek(c);
+      return c.week >= sinceWeek && ow != null && ow < sinceWeek; // arrived after the edit, but about a pre-edit order
+    }).length;
+    var prodAll = allComplaints.filter(function (c) { return c.key === aiKey && !c.detailOnly; });
+    var exactDates = prodAll.filter(function (c) { return c.orderWeek != null; }).length;
     var counts = {};
     rows.forEach(function (c) { counts[c.type] = (counts[c.type] || 0) + 1; });
     var texts = rows.filter(function (c) { return c.summary; });
     texts.sort(function (a, b) { return (b.week || 0) - (a.week || 0); });
     var wk = ordersByKey[aiKey] ? ordersByKey[aiKey].weekOrders : {};
-    var cWeeks = allComplaints.filter(function (c) { return c.key === aiKey && !c.detailOnly && c.week != null; }).map(function (c) { return c.week; });
-    var latestCW = cWeeks.length > 0 ? Math.max.apply(null, cWeeks) : null;
-    var ordersLagged = function (startW, endW) {
+    var cOWs = prodAll.map(effOrderWeek).filter(function (w) { return w != null; });
+    var latestCW = cOWs.length > 0 ? Math.max.apply(null, cOWs) : null;
+    var ordersIn = function (startW, endW) {
       var t = 0;
-      for (var w = startW - LAG_WEEKS; w <= endW - LAG_WEEKS; w++) { if (w >= 1) t += wk[w] || 0; }
+      for (var w = startW; w <= endW; w++) { if (w >= 1) t += wk[w] || 0; }
       return t;
     };
-    var winStart = cWeeks.length > 0 ? Math.min.apply(null, cWeeks) : 1;
-    var recO = latestCW != null ? ordersLagged(latestCW - 1, latestCW) : 0;
-    var priO = latestCW != null ? ordersLagged(winStart, latestCW - 2) : 0;
+    var winStart = cOWs.length > 0 ? Math.min.apply(null, cOWs) : 1;
+    var recO = latestCW != null ? ordersIn(latestCW - 1, latestCW) : 0;
+    var priO = latestCW != null ? ordersIn(winStart, latestCW - 2) : 0;
     // dashboardPct = EXACTLY the number on the category tiles (same denominator, same window).
     var catStats = CATEGORIES.map(function (cat) {
       var recC = 0, priC = 0;
-      allComplaints.forEach(function (c) {
-        if (c.key !== aiKey || c.detailOnly || c.type !== cat.key || c.week == null) return;
-        if (latestCW != null && c.week >= latestCW - 1) recC++; else priC++;
+      prodAll.forEach(function (c) {
+        if (c.type !== cat.key) return;
+        var ow = effOrderWeek(c);
+        if (ow == null) return;
+        if (latestCW != null && ow >= latestCW - 1) recC++; else priC++;
       });
       var z = zones[cat.key] || { amber: [6], red: [8] };
       return {
@@ -1992,21 +2091,28 @@ export default function ComplaintDashboard() {
     // Per-category stats since the last edit (lag-corrected orders) — powers the +/- toggle grid
     var sinceEdit = null;
     if (sinceWeek != null) {
-      var endW = latestCW != null ? Math.max(latestCW, sinceWeek) : sinceWeek;
-      var sinceO = ordersLagged(sinceWeek, endW);
+      var sinceO = ordersIn(sinceWeek, latestDataWeek); // orders actually placed since the edit
       var perCat = {};
       CATEGORIES.forEach(function (cat) {
         var cnt = counts[cat.key] || 0;
         perCat[cat.key] = { count: cnt, pct: sinceO > 0 ? +(cnt / sinceO * 100).toFixed(1) : 0 };
       });
-      sinceEdit = { week: sinceWeek, orders: sinceO, perCat: perCat };
+      sinceEdit = {
+        week: sinceWeek,
+        firstFeedbackWeek: sinceWeek,
+        tooEarly: sinceO === 0 || (latestCW != null && latestCW < sinceWeek && rows.length === 0),
+        inFlight: inFlight,
+        orders: sinceO,
+        exactDatePct: prodAll.length > 0 ? Math.round(exactDates / prodAll.length * 100) : 0,
+        perCat: perCat,
+      };
     }
     return {
       sinceEdit: sinceEdit,
       catStats: catStats,
       windows: {
         dashboard: "orders W" + ordersWR[0] + "\u2013W" + ordersWR[1] + " (" + frow.orders + " orders) \u2014 the same numbers shown on the dashboard tiles",
-        recentTrend: latestCW != null ? "complaint weeks W" + (latestCW - 1) + "\u2013W" + latestCW + " over " + recO + " lag-corrected orders" : "n/a",
+        recentTrend: latestCW != null ? "orders placed W" + (latestCW - 1) + "\u2013W" + latestCW + " (" + recO + " orders; complaints matched by order-placed date)" : "n/a",
       },
       ordersRamp: { last2wOrders: recent2O, prev2wOrders: prev2O, justScaled: !!frow.scaleRisk || (recent2O >= 10 && recent2O >= 1.8 * Math.max(prev2O, 1)), firstScaleWeek: frow.firstScaleWeek },
       product: titleByKey[aiKey] || aiKey,
@@ -2027,6 +2133,35 @@ export default function ComplaintDashboard() {
   var focusAI = useMemo(function () {
     return focusedProduct ? buildAIPayload(focusedProduct) : null;
   }, [focusedProduct, heatmapData, allComplaints, actionsByProduct, ordersByKey, titleByKey, zones, latestDataWeek, ordersWR, contribData]);
+
+  // One-line issue summary per product for the table column (cached AI bullet first, heuristic fallback)
+  var issueByKey = useMemo(function () {
+    var out = {};
+    heatmapData.forEach(function (row) {
+      try {
+        var d = buildAIPayload(row.key);
+        if (d) {
+          var cached = window.localStorage.getItem(makeAIKey(STORE_CSVS[selectedStore].name, row.key, d));
+          if (cached) {
+            var j = JSON.parse(cached);
+            var first = String(j.summary || "").split("\n")[0].replace(/^\u2022\s*/, "").trim();
+            if (first) { out[row.key] = first; return; }
+          }
+        }
+      } catch (e) { /* fall through to heuristic */ }
+      if (row.killSignal) { out[row.key] = "KILL signal \u2014 " + (row.killSignal.reasons ? row.killSignal.reasons.join(", ") : "thresholds crossed"); return; }
+      if (row.scaleRisk) { out[row.key] = "SCALE RISK \u2014 " + row.scaleRisk.recentComplaints + " complaint(s) on a fresh scale"; return; }
+      if (row.earlyWarning) { out[row.key] = "Early warning: " + row.earlyWarning.label + " \u00D7" + row.earlyWarning.count; return; }
+      var worst = null;
+      CATEGORIES.forEach(function (cat) {
+        var z = zones[cat.key] || { amber: [6] };
+        var v = row[cat.key] || 0;
+        if (v >= z.amber[0] && (!worst || v > worst.v)) worst = { label: cat.label, v: v };
+      });
+      out[row.key] = worst ? worst.label + " " + worst.v.toFixed(1) + "% \u2014 warning" : null;
+    });
+    return out;
+  }, [heatmapData, allComplaints, actionsByProduct, ordersByKey, zones, latestDataWeek, ordersWR, contribData, selectedStore, runState.running]);
   // Data payloads for the floating widgets
   var reportData = useMemo(function () {
     var recentActions = [];
@@ -2085,7 +2220,7 @@ export default function ComplaintDashboard() {
         action: form.action,
         expectedEffect: form.expectedEffect,
         notes: form.notes,
-        week: currentWeekNum(),
+        week: form.week || currentWeekNum(),
         status: "Active",
         date: todayISO(),
         uuid: u,
@@ -2103,7 +2238,7 @@ export default function ComplaintDashboard() {
           action: form.action,
           expectedEffect: form.expectedEffect,
           notes: form.notes,
-          week: currentWeekNum(),
+          week: form.week || currentWeekNum(),
           status: "Active",
           date: todayISO(),
         });
@@ -2157,11 +2292,7 @@ export default function ComplaintDashboard() {
     };
   }
 
-  var stClosing = useState(false); var closing = stClosing[0]; var setClosing = stClosing[1];
-  var lastRowRef = useRef(null);
-  var closeRef = useRef(null);
-  var stToast = useState(null); var toast = stToast[0]; var setToast = stToast[1];
-  var stRun = useState({ running: false, done: 0, total: 0 }); var runState = stRun[0]; var setRunState = stRun[1];
+
   var toastTimer = useRef(null);
   function showToast(text, ms) {
     setToast(text);
@@ -2202,7 +2333,7 @@ export default function ComplaintDashboard() {
     );
   };
 
-  var visibleColCount = statusFilter === "edited" ? 8 : 7;
+  var visibleColCount = 8;
   var focusedRow = focusedProduct ? heatmapData.find(function (r) { return r.key === focusedProduct; }) : null;
   // Cache the last seen row: after "Log action" the status flips to Edited and the row can drop
   // out of the filtered view instantly — without this cache the panel vanished into a black screen.
@@ -2221,6 +2352,29 @@ export default function ComplaintDashboard() {
     if (rows.length === 0) return;
     if (!window.confirm("Run the AI analysis for all " + rows.length + " visible products in the background?\n\nThis calls the Claude API once per product (a few cents each) and can take a couple of minutes. Already-analyzed products are skipped.")) return;
     setRunState({ running: true, done: 0, total: rows.length });
+    // Phase 0: fill missing "order placed" dates via Shopify (Apps Script does the lookups).
+    if (APPS_SCRIPT_URL) {
+      try {
+        var guard = 0;
+        while (guard < 40) {
+          guard++;
+          setRunState({ running: true, done: 0, total: rows.length, phase: "enrich" });
+          showToast("Enriching order dates from Shopify\u2026", 2500);
+          var er = await postToSheet({ type: "enrich" });
+          if (er.errors && er.errors.length) console.warn("[enrich]", er.errors);
+          if (!er.remaining || er.remaining <= 0) {
+            if (er.filled > 0) showToast("Order dates filled: " + er.filled + ". New dates reach the dashboard after the next data refresh (~5 min).", 4200);
+            break;
+          }
+          showToast("Enriching order dates\u2026 " + er.remaining + " to go (backlog)", 2500);
+        }
+      } catch (e) { console.warn("[enrich] skipped:", e.message || e); }
+    }
+    // Fresh review round: clear all checkmarks; no-action products get auto-checked below.
+    var freshChecked = { weekAnchor: getCurrentMondayISO(), products: {} };
+    setCheckedState(freshChecked); saveCheckedProducts(freshChecked);
+    var noActionKeys = [];
+    var NO_ACTION_RE = /no action needed|no real problem|all rates in the safe zone|leave it alone|no edit needed|only shipping/i;
     var rules = getCustomRules();
     var done = 0;
     var chunk = 3;
@@ -2229,16 +2383,24 @@ export default function ComplaintDashboard() {
         return (async function () {
           try {
             var d = buildAIPayload(r.key);
-            if (!d || d.totalComplaints === 0) return;
+            if (!d || d.totalComplaints === 0) { noActionKeys.push(r.key); return; } // zero complaints = nothing to review
             var k = makeAIKey(STORE_CSVS[selectedStore].name, r.key, d);
-            if (window.localStorage.getItem(k)) return;
-            var resp = await fetch(AI_API_PATH, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(Object.assign({}, d, { customRules: rules })),
-            });
-            var j = await resp.json();
-            if (resp.ok && !j.error) window.localStorage.setItem(k, JSON.stringify(j));
+            var cached = window.localStorage.getItem(k);
+            var j = null;
+            if (cached) { j = JSON.parse(cached); }
+            else {
+              var resp = await fetch(AI_API_PATH, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(Object.assign({}, d, { customRules: rules })),
+              });
+              j = await resp.json();
+              if (resp.ok && !j.error) window.localStorage.setItem(k, JSON.stringify(j));
+              else j = null;
+            }
+            if (j && (j.noActionNeeded === true || NO_ACTION_RE.test(String(j.summary || "") + " " + String(j.recommendation || "")))) {
+              noActionKeys.push(r.key);
+            }
           } catch (e) { /* keep going */ }
         })();
       });
@@ -2247,7 +2409,16 @@ export default function ComplaintDashboard() {
       setRunState({ running: true, done: done, total: rows.length });
     }
     setRunState({ running: false, done: rows.length, total: rows.length });
-    showToast("All recommendations ready \u2014 open any product and the analysis is instant.", 3600);
+    if (noActionKeys.length > 0) {
+      setCheckedState(function (prev) {
+        var nextProducts = Object.assign({}, prev.products);
+        noActionKeys.forEach(function (k2) { nextProducts[k2] = true; });
+        var next = { weekAnchor: prev.weekAnchor, products: nextProducts };
+        saveCheckedProducts(next);
+        return next;
+      });
+    }
+    showToast("Done \u2014 " + noActionKeys.length + " product(s) auto-checked (no action needed). " + (rows.length - noActionKeys.length) + " left to review.", 5200);
   }
   var dimUI = focusedProduct
     ? { filter: "blur(2.5px) brightness(0.45)", opacity: 0.55, pointerEvents: "none", userSelect: "none", transition: "filter 0.2s, opacity 0.2s" }
@@ -2315,6 +2486,7 @@ export default function ComplaintDashboard() {
             <select value={statusFilter} onChange={function (e) { setStatusFilter(e.target.value); }} style={{ background: "transparent", border: "none", color: N.text, fontSize: 11, fontFamily: "inherit", outline: "none" }}>
               <option value="all">All</option>
               <option value="active">Active</option>
+              <option value="new arrival">New arrivals</option>
               <option value="edited">Edited</option>
               <option value="inactive">Inactive</option>
               <option value="stopped">Stopped</option>
@@ -2386,7 +2558,7 @@ export default function ComplaintDashboard() {
                   { label: sortableHeader("Total %", "pct"), align: "left", w: 70 },
                   { label: "Signal", align: "left", w: 118 },
                   { label: "Product", align: "left" },
-                ].concat(statusFilter === "edited" ? [{ label: "Last edit", align: "left", w: 260 }] : []).map(function (h, i) {
+                ].concat([{ label: statusFilter === "edited" ? "Last edit" : "Last edit / issue", align: "left", w: 240 }]).map(function (h, i) {
                   return (
                     <th key={i} style={{ background: N.bgS, color: N.textS, fontWeight: 600, fontSize: 8, textTransform: "uppercase", letterSpacing: "0.03em", padding: "6px 7px", textAlign: h.align, whiteSpace: "nowrap", position: "sticky", top: 0, width: h.w || "auto" }}>
                       {h.label}
@@ -2472,16 +2644,20 @@ export default function ComplaintDashboard() {
                       style={{ padding: "5px 7px", textAlign: "left", color: N.text, fontWeight: 500, borderBottom: "1px solid " + N.border, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: isChecked ? "line-through" : "none", cursor: "pointer" }}>
                       <span style={{ color: isStopped ? N.textS : N.text, borderBottom: "1px dotted rgba(255,255,255,0.2)" }}>{row.product}</span>
                                           </td>
-                    {statusFilter === "edited" && (
-                      <td style={{ padding: "5px 7px", textAlign: "left", color: N.textS, borderBottom: "1px solid " + N.border, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 10.5 }}
-                        title={(function () { var la = (rA || []).slice().sort(function (a, b) { return (b.week || 0) - (a.week || 0); })[0]; return la ? "W" + la.week + " \u00B7 " + la.action + (la.notes ? " \u2014 " + la.notes : "") : ""; })()}>
-                        {(function () {
-                          var la = (rA || []).slice().sort(function (a, b) { return (b.week || 0) - (a.week || 0); })[0];
-                          if (!la) return <span style={{ color: N.textT }}>{"\u2014"}</span>;
-                          return <span><span style={{ color: N.blue, fontWeight: 700 }}>W{la.week}</span> {la.action}{la.notes ? " \u2014 " + la.notes : ""}</span>;
-                        })()}
-                      </td>
-                    )}
+                    <td style={{ padding: "5px 7px", textAlign: "left", color: N.textS, borderBottom: "1px solid " + N.border, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 10.5, maxWidth: 240 }}
+                      title={(function () {
+                        var la = (rA || []).slice().sort(function (a, b) { return (b.week || 0) - (a.week || 0); })[0];
+                        if (la) return "W" + la.week + " \u00B7 " + la.action + (la.notes ? " \u2014 " + la.notes : "");
+                        return issueByKey[row.key] || "";
+                      })()}>
+                      {(function () {
+                        var la = (rA || []).slice().sort(function (a, b) { return (b.week || 0) - (a.week || 0); })[0];
+                        if (la) return <span><span style={{ color: N.blue, fontWeight: 700 }}>W{la.week}</span> {la.action}{la.notes ? " \u2014 " + la.notes : ""}</span>;
+                        var iss = issueByKey[row.key];
+                        if (!iss) return <span style={{ color: N.textT }}>{"\u2014"}</span>;
+                        return <span>{iss}</span>;
+                      })()}
+                    </td>
                   </tr>
                 ];
                 return rowEls;
