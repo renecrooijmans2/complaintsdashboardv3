@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import JSZip from "jszip";
+import confetti from "canvas-confetti";
 
 /* ══════════════════════════════════════════
    STORE CONFIG — add up to 5 stores
@@ -53,7 +54,7 @@ var COMPLAINT_DETAIL_CSV_URL = "";
 // Google Apps Script Web App URL — enables logging Actions / Stopped Advertising
 // straight into the Google Sheet from the dashboard (with undo).
 // Setup: see apps-script/Code.gs + README. Leave "" to hide the buttons.
-var APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyPf4MYQO4r4NB9yCAa1S7zrMGCcvMCrCuEJGwJfZScPfmGCgKfahIW2ugh9MqDhr0/exec";
+var APPS_SCRIPT_URL = "";
 
 /* ── THEME ── */
 var N = {
@@ -708,16 +709,41 @@ function AIPanel(props) {
   var stPB = useState(false); var packBusy = stPB[0]; var setPackBusy = stPB[1];
   var stOR = useState(false); var openRec = stOR[0]; var setOpenRec = stOR[1];
   var stOF = useState(false); var openFix = stOF[0]; var setOpenFix = stOF[1];
+  var stMU = useState(""); var manualUrl = stMU[0]; var setManualUrl = stMU[1];
+  var effUrl = (manualUrl || props.productUrl || "").trim();
+
+  function chartFromScreenshot(file) {
+    if (!file || !ai.data) return;
+    setChartBusy(true); setChartErr("");
+    var reader = new FileReader();
+    reader.onload = function () {
+      var b64 = String(reader.result).split(",")[1];
+      fetch(SIZECHART_API_PATH, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64: b64, mediaType: file.type || "image/png", instructions: (ai.data.deliverable || "") + "\n" + (ai.data.recommendation || "") }),
+      }).then(function (r) { return r.json(); }).then(function (j) {
+        setChartBusy(false);
+        if (j.error) { setChartErr(j.error); return; }
+        var blob = new Blob([j.html], { type: "text/html" });
+        var a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "sizechart-updated.html";
+        document.body.appendChild(a); a.click(); a.remove();
+      }).catch(function (e) { setChartBusy(false); setChartErr(String(e.message || e)); });
+    };
+    reader.readAsDataURL(file);
+  }
   var stPE = useState(""); var packErr = stPE[0]; var setPackErr = stPE[1];
 
   function makeImagePack() {
-    if (!props.productUrl || !d) return;
+    if (!effUrl || !d) return;
     setPackBusy(true); setPackErr("");
     var complaintsTxt = (d.summaries || []).slice(0, 20).map(function (t) { return "[" + t.type + "] " + t.text; }).join("\n") || JSON.stringify(d.counts || {});
     fetch(IMAGE_PROMPTS_PATH, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: props.productUrl, complaints: complaintsTxt }),
+      body: JSON.stringify({ url: effUrl, complaints: complaintsTxt }),
     }).then(function (r) { return r.json(); }).then(async function (j) {
       if (j.error) { setPackBusy(false); setPackErr(j.error); return; }
       var zip = new JSZip();
@@ -753,12 +779,12 @@ function AIPanel(props) {
   }
 
   function makeChartHtml() {
-    if (!props.productUrl || !ai.data) return;
+    if (!effUrl || !ai.data) return;
     setChartBusy(true); setChartErr("");
     fetch(SIZECHART_API_PATH, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: props.productUrl, instructions: (ai.data.deliverable || "") + "\n" + (ai.data.recommendation || "") }),
+      body: JSON.stringify({ url: effUrl, instructions: (ai.data.deliverable || "") + "\n" + (ai.data.recommendation || "") }),
     }).then(function (r) { return r.json(); }).then(function (j) {
       setChartBusy(false);
       if (j.error) { setChartErr(j.error); return; }
@@ -769,7 +795,7 @@ function AIPanel(props) {
       document.body.appendChild(a); a.click(); a.remove();
     }).catch(function (e) { setChartBusy(false); setChartErr(String(e.message || e)); });
   }
-  var cacheKey = d ? "ai8-" + props.storeName + "-" + props.rowKey + "-" + d.totalComplaints + "-" + (d.sinceWeek || 0) : null;
+  var cacheKey = d ? "ai9-" + props.storeName + "-" + props.rowKey + "-" + d.totalComplaints + "-" + (d.sinceWeek || 0) : null;
 
   function run(force) {
     if (!d || !props.ready) return;
@@ -844,23 +870,29 @@ function AIPanel(props) {
                 <div onClick={function () { setOpenFix(!openFix); }} style={{ fontSize: 10, fontWeight: 700, color: N.textS, cursor: "pointer", userSelect: "none" }}>
                   <span style={{ display: "inline-block", width: 14 }}>{openFix ? "\u2212" : "+"}</span>Concrete fix
                 </div>
-                <div style={{ display: "flex", gap: 6 }}>
-                  {props.productUrl && (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <label style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 9, padding: "2px 8px", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>
+                    {chartBusy ? "Building\u2026" : "Chart from screenshot"}
+                    <input type="file" accept="image/*" style={{ display: "none" }}
+                      onChange={function (e) { if (e.target.files && e.target.files[0]) { chartFromScreenshot(e.target.files[0]); e.target.value = ""; } }} />
+                  </label>
+                  {effUrl && (
                     <button disabled={chartBusy} onClick={makeChartHtml}
-                      style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 9, padding: "2px 8px", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>
-                      {chartBusy ? "Building\u2026" : "Updated size chart (HTML)"}
+                      style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>
+                      Chart from page
                     </button>
                   )}
-                  {props.productUrl && (
-                    <button disabled={packBusy} onClick={makeImagePack}
-                      style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 9, padding: "2px 8px", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>
-                      {packBusy ? "Building\u2026" : "Image edit pack (zip)"}
-                    </button>
-                  )}
+                  <button disabled={packBusy || !effUrl} onClick={makeImagePack} title={effUrl ? "" : "Paste the product URL below first"}
+                    style={{ background: "transparent", border: "1px solid " + N.border, color: effUrl ? N.textS : N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 3, cursor: effUrl ? "pointer" : "not-allowed", fontFamily: "inherit" }}>
+                    {packBusy ? "Building\u2026" : "Image edit pack (zip)"}
+                  </button>
                   <button onClick={function () { try { navigator.clipboard.writeText(ai.data.deliverable); } catch (e) { /* no-op */ } }}
                     style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>Copy</button>
                 </div>
               </div>
+              <input value={manualUrl || props.productUrl || ""} placeholder="Product page URL (auto-filled when found \u2014 paste manually if empty)"
+                onChange={function (e) { setManualUrl(e.target.value); }}
+                style={{ width: "100%", background: N.bg, border: "1px solid " + N.border, borderRadius: 4, color: N.textS, fontSize: 9.5, fontFamily: "inherit", padding: "4px 8px", outline: "none", marginBottom: 6 }} />
               {chartErr && <div style={{ fontSize: 9, color: N.textT, marginBottom: 4 }}>Size chart: {chartErr}</div>}
               {packErr && <div style={{ fontSize: 9, color: N.textT, marginBottom: 4 }}>Image pack: {packErr}</div>}
               {openFix && <div style={{ fontSize: 11, color: N.text, lineHeight: 1.55, whiteSpace: "pre-wrap", fontVariantNumeric: "tabular-nums" }}>{ai.data.deliverable}</div>}
@@ -985,6 +1017,7 @@ function FocusPanel(props) {
       <div style={{ fontSize: 14, fontWeight: 700, color: N.text, display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
         <span style={{ flex: 1 }}>{row.product}</span>
         {qc && qc.notionUrl && <a href={qc.notionUrl} target="_blank" rel="noreferrer" style={{ fontSize: 10, fontWeight: 500, color: N.textS, textDecoration: "none" }}>Notion {"\u2197"}</a>}
+        {ads && ads.fuzzy && <span style={{ fontSize: 9, color: N.textT }}>(ad-DB match unverified {"\u2014"} check product)</span>}
         {props.onClose && (
           <button onClick={props.onClose} style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 4, cursor: "pointer", fontFamily: "inherit" }}>Exit (Esc)</button>
         )}
@@ -1150,7 +1183,7 @@ function FocusPanel(props) {
           </div>
         </div>
         {err && <div style={{ fontSize: 10, color: N.red, marginBottom: 6 }}>{err}</div>}
-        {savedMsg && <div style={{ fontSize: 11, color: N.green, fontWeight: 600, marginBottom: 6 }}>Action saved to the sheet.</div>}
+        {savedMsg && <div style={{ fontSize: 11, color: N.green, fontWeight: 600, marginBottom: 6 }}>Saved {"\u2713"} {"\u2014"} logged to the sheet, status set to Edited. Closing{"\u2026"}</div>}
         {showForm && (
           <div style={{ background: N.bg, border: "1px solid " + N.border, borderRadius: 6, padding: 12, marginBottom: 10, display: "grid", gridTemplateColumns: "160px 1fr 1fr", gap: 8, alignItems: "end" }}>
             <div>
@@ -1422,10 +1455,30 @@ export default function ComplaintDashboard() {
   function toggleChecked(product) {
     setCheckedState(function (prev) {
       var nextProducts = Object.assign({}, prev.products);
-      if (nextProducts[product]) delete nextProducts[product];
-      else nextProducts[product] = true;
+      var checking = !nextProducts[product];
+      if (checking) nextProducts[product] = true;
+      else delete nextProducts[product];
       var next = { weekAnchor: prev.weekAnchor, products: nextProducts };
       saveCheckedProducts(next);
+      if (checking) {
+        var allDone = heatmapData.length > 0 && heatmapData.every(function (r) { return !!nextProducts[r.key]; });
+        setTimeout(function () {
+          if (allDone) {
+            // Confetti cannon — the whole list is reviewed
+            var end = Date.now() + 1200;
+            (function frame() {
+              confetti({ particleCount: 6, angle: 60, spread: 60, origin: { x: 0, y: 0.75 } });
+              confetti({ particleCount: 6, angle: 120, spread: 60, origin: { x: 1, y: 0.75 } });
+              if (Date.now() < end) requestAnimationFrame(frame);
+            })();
+            confetti({ particleCount: 140, spread: 100, origin: { y: 0.6 } });
+            showToast("Killing it! Fewer refunds, fewer complaints \u2014 all because of you.", 4200);
+          } else {
+            confetti({ particleCount: 35, spread: 55, startVelocity: 28, origin: { y: 0.85 }, scalar: 0.8 });
+            showToast("Great job! Our future customers for this product will thank you.");
+          }
+        }, 0);
+      }
       return next;
     });
   }
@@ -1996,8 +2049,19 @@ export default function ComplaintDashboard() {
     };
   }
 
+  var stClosing = useState(false); var closing = stClosing[0]; var setClosing = stClosing[1];
+  var lastRowRef = useRef(null);
+  var closeRef = useRef(null);
+  var stToast = useState(null); var toast = stToast[0]; var setToast = stToast[1];
+  var toastTimer = useRef(null);
+  function showToast(text, ms) {
+    setToast(text);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(function () { setToast(null); }, ms || 2600);
+  }
+
   useEffect(function () {
-    function onKey(e) { if (e.key === "Escape") setFocusedProduct(null); }
+    function onKey(e) { if (e.key === "Escape" && closeRef.current) closeRef.current(); }
     window.addEventListener("keydown", onKey);
     return function () { window.removeEventListener("keydown", onKey); };
   }, []);
@@ -2031,6 +2095,16 @@ export default function ComplaintDashboard() {
 
   var visibleColCount = statusFilter === "edited" ? 8 : 7;
   var focusedRow = focusedProduct ? heatmapData.find(function (r) { return r.key === focusedProduct; }) : null;
+  // Cache the last seen row: after "Log action" the status flips to Edited and the row can drop
+  // out of the filtered view instantly — without this cache the panel vanished into a black screen.
+  if (focusedRow) lastRowRef.current = focusedRow;
+  var shownRow = focusedRow || (focusedProduct ? lastRowRef.current : null);
+  function closeFocus() {
+    if (!focusedProduct || closing) return;
+    setClosing(true);
+    setTimeout(function () { setFocusedProduct(null); setClosing(false); }, 320);
+  }
+  closeRef.current = closeFocus;
   var dimUI = focusedProduct
     ? { filter: "blur(2.5px) brightness(0.45)", opacity: 0.55, pointerEvents: "none", userSelect: "none", transition: "filter 0.2s, opacity 0.2s" }
     : { transition: "filter 0.2s, opacity 0.2s" };
@@ -2145,7 +2219,7 @@ export default function ComplaintDashboard() {
               </div>
             )}
             {focusedProduct && (
-              <button onClick={function () { setFocusedProduct(null); }} style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 4, cursor: "pointer", fontFamily: "inherit" }}>
+              <button onClick={closeFocus} style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 4, cursor: "pointer", fontFamily: "inherit" }}>
                 {"\u2715"} Exit focus
               </button>
             )}
@@ -2245,7 +2319,7 @@ export default function ComplaintDashboard() {
                       )}
                     </td>
                     <td
-                      onClick={function () { setFocusedProduct(isFocused ? null : row.key); setHoveredProduct(null); }}
+                      onClick={function () { if (isFocused) { closeFocus(); } else { setFocusedProduct(row.key); } setHoveredProduct(null); }}
                       title={isFocused ? "Click to exit focus" : "Click to focus this product"}
                       style={{ padding: "5px 7px", textAlign: "left", color: N.text, fontWeight: 500, borderBottom: "1px solid " + N.border, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: isChecked ? "line-through" : "none", cursor: "pointer" }}>
                       <span style={{ color: isStopped ? N.textS : N.text, borderBottom: "1px dotted rgba(255,255,255,0.2)" }}>{row.product}</span>
@@ -2275,29 +2349,36 @@ export default function ComplaintDashboard() {
         <span>{visibleProducts}/{totalProducts} products {"\u00B7"} {Object.keys(stoppedAds).length} stopped {"\u00B7"} Complaints W{weekRange[0]}{"\u2013"}W{weekRange[1]} vs Orders W{ordersWR[0]}{"\u2013"}W{ordersWR[1]} {"\u00B7"} 14d lag {"\u00B7"} Orders 14d = W{latestDataWeek - 1}{"\u2013"}W{latestDataWeek} {"\u00B7"} Min {minSales} sales {"\u00B7"} Margin data: {Object.keys(contribData).length} products{Object.keys(contribData).length === 0 ? " \u2014 check contribUrl gid (README)" : ""}</span>
       </div>
 
-      {focusedProduct && (
-        <div onClick={function () { setFocusedProduct(null); }}
-          style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "#000", zIndex: 30 }} />
+      {toast && createPortal(
+        <div style={{ position: "fixed", bottom: 26, left: "50%", transform: "translateX(-50%)", background: "rgba(30,30,30,0.97)", border: "1px solid rgba(52,211,153,0.4)", color: "#e8e8e8", fontSize: 13, fontWeight: 600, padding: "10px 20px", borderRadius: 8, zIndex: 10000, boxShadow: "0 8px 32px rgba(0,0,0,0.6)", animation: "toastIn 0.25s ease", fontFamily: FONT, whiteSpace: "nowrap", maxWidth: "90vw", overflow: "hidden", textOverflow: "ellipsis" }}>
+          <style>{"@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(12px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}"}</style>
+          {toast}
+        </div>,
+        document.body
       )}
-      {focusedRow && (
-        <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: "min(1100px, 95vw)", maxHeight: "90vh", overflowY: "auto", zIndex: 40 }}>
+      {focusedProduct && (
+        <div onClick={closeFocus}
+          style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "#000", zIndex: 30, opacity: closing ? 0 : 1, transition: "opacity 0.3s ease" }} />
+      )}
+      {focusedProduct && shownRow && (
+        <div style={{ position: "fixed", top: "50%", left: "50%", transform: closing ? "translate(-50%, -46%)" : "translate(-50%, -50%)", width: "min(1100px, 95vw)", maxHeight: "90vh", overflowY: "auto", zIndex: 40, opacity: closing ? 0 : 1, transition: "opacity 0.3s ease, transform 0.3s ease" }}>
           <FocusPanel
-            row={focusedRow}
-            image={focusedRow.image}
+            row={shownRow}
+            image={shownRow.image}
             zones={zones}
             quotes={focusQuotes}
             aiData={focusAI}
-            allRows={allComplaints.filter(function (c) { return c.key === focusedRow.key; }).sort(function (a, b) { return (b.week || 0) - (a.week || 0); })}
-            onClose={function () { setFocusedProduct(null); }}
+            allRows={allComplaints.filter(function (c) { return c.key === shownRow.key; }).sort(function (a, b) { return (b.week || 0) - (a.week || 0); })}
+            onClose={closeFocus}
             storeDomain={STORE_CSVS[selectedStore].domain || ""}
             storeName={STORE_CSVS[selectedStore].name}
-            contrib={contribData[focusedRow.key]}
-            stoppedInfo={stoppedAds[focusedRow.key]}
-            actionItems={actionsByProduct[focusedRow.key] || []}
-            onLogAction={makeLogAction(focusedRow)}
-            onStopAds={makeStopAds(focusedRow)}
+            contrib={contribData[shownRow.key]}
+            stoppedInfo={stoppedAds[shownRow.key]}
+            actionItems={actionsByProduct[shownRow.key] || []}
+            onLogAction={makeLogAction(shownRow)}
+            onStopAds={makeStopAds(shownRow)}
             onUndoAction={undoAction}
-            onUndoStop={makeUndoStop(focusedRow)}
+            onUndoStop={makeUndoStop(shownRow)}
           />
         </div>
       )}
