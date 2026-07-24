@@ -66,7 +66,7 @@ function saveCustomRules(rules) {
 }
 function rulesHash(rules) { return rules.length + "x" + rules.join("|").length; }
 function makeAIKey(storeName, rowKey, d) {
-  return "ai13-" + storeName + "-" + rowKey + "-" + d.totalComplaints + "-" + (d.sinceWeek || 0) + "-" + rulesHash(getCustomRules());
+  return "ai15-" + storeName + "-" + rowKey + "-" + d.totalComplaints + "-" + (d.sinceWeek || 0) + "-" + rulesHash(getCustomRules());
 }
 
 /* ── THEME ── */
@@ -567,6 +567,20 @@ function getHeatBg(v, z) {
 }
 
 /* POST to the Apps Script webhook. text/plain avoids the CORS preflight. */
+// fetch with a hard 20s timeout — a hanging Google publish endpoint may never freeze the app
+async function fetchT(url) {
+  var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+  var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 20000) : null;
+  try {
+    var r = await fetch(url, ctrl ? { signal: ctrl.signal } : undefined);
+    return r;
+  } catch (e) {
+    throw new Error("timeout/failure fetching " + String(url).slice(0, 80) + " \u2014 " + (e.message || e));
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function postToSheet(payload) {
   if (!APPS_SCRIPT_URL) throw new Error("APPS_SCRIPT_URL not configured");
   var res = await fetch(APPS_SCRIPT_URL, {
@@ -718,10 +732,19 @@ function CategoryGrid(props) {
         return (
           <div key={c.key} style={{ background: getHeatBg(pct, z), border: "1px solid " + N.border, borderRadius: 5, padding: "7px 9px", textAlign: "center" }}>
             <div style={{ fontSize: 9, color: N.textS, marginBottom: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.label}</div>
-            <div style={{ fontSize: 13, fontWeight: pct >= z.amber[0] ? 700 : 600, color: pct > 0 ? getZoneColor(pct, z) : N.textT, fontVariantNumeric: "tabular-nums" }}>
-              {pct > 0 ? pct.toFixed(1) + "%" : "\u2014"}
-            </div>
-            <div style={{ fontSize: 8, color: N.textT }}>{count > 0 ? count + "x" : ""}</div>
+            {props.sampleSmall ? (
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: count > 0 ? N.textS : N.textT, fontVariantNumeric: "tabular-nums" }}>{count > 0 ? count + "\u00D7" : "\u2014"}</div>
+                <div style={{ fontSize: 8, color: N.textT }}>sample {"<"}30</div>
+              </div>
+            ) : (
+              <div>
+                <div style={{ fontSize: 13, fontWeight: pct >= z.amber[0] ? 700 : 600, color: pct > 0 ? getZoneColor(pct, z) : N.textT, fontVariantNumeric: "tabular-nums" }}>
+                  {pct > 0 ? pct.toFixed(1) + "%" : "\u2014"}
+                </div>
+                <div style={{ fontSize: 8, color: N.textT }}>{count > 0 ? count + "x" : ""}</div>
+              </div>
+            )}
           </div>
         );
       })}
@@ -1070,7 +1093,7 @@ function FocusPanel(props) {
       <div style={{ fontSize: 14, fontWeight: 700, color: N.text, display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
         <span style={{ flex: 1 }}>{row.product}</span>
         {qc && qc.notionUrl && <a href={qc.notionUrl} target="_blank" rel="noreferrer" style={{ fontSize: 10, fontWeight: 500, color: N.textS, textDecoration: "none" }}>Notion {"\u2197"}</a>}
-        {ads && ads.fuzzy && <span style={{ fontSize: 9, color: N.textT }}>(ad-DB match unverified {"\u2014"} check product)</span>}
+        {ads && ads.fuzzy && <span style={{ fontSize: 9, color: N.orange }}>(ad-DB match unverified{ads.matchedTitle ? ": \u201C" + ads.matchedTitle + "\u201D" : ""} {"\u2014"} links below may be another product)</span>}
         {props.onClose && (
           <button onClick={props.onClose} style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 4, cursor: "pointer", fontFamily: "inherit" }}>Exit (Esc)</button>
         )}
@@ -1163,9 +1186,9 @@ function FocusPanel(props) {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(" + CATEGORIES.length + ", minmax(0, 1fr))", gap: 6 }}>
             {[
               { label: "Orders 14d", value: row.orders7d != null ? row.orders7d.toLocaleString() : "\u2014" },
-              { label: "Orders (range)", value: row.orders.toLocaleString() },
+              { label: "In hands (2wk+)", value: row.orders.toLocaleString() },
               { label: "Complaints", value: row.complaints },
-              { label: "Total %", value: fmtPct(row.pct), color: row.pct >= KILL_TOTAL_THRESHOLD ? N.red : N.text },
+              { label: "Total %", value: row.sampleSmall ? row.complaints + "\u00D7" : fmtPct(row.pct), color: row.pct >= KILL_TOTAL_THRESHOLD && !row.sampleSmall ? N.red : N.text },
               { label: "Refund rate", value: contrib && contrib.refundRate != null ? fmtPct(contrib.refundRate) : "\u2014", color: contrib && contrib.refundRate != null && contrib.refundRate >= 10 ? N.red : N.text },
             ].map(function (s) {
               return (
@@ -1177,7 +1200,10 @@ function FocusPanel(props) {
             })}
           </div>
           <div>
-            <CategoryGrid row={row} zones={props.zones} />
+            <CategoryGrid row={row} zones={props.zones} sampleSmall={row.sampleSmall} />
+            <div style={{ fontSize: 9, color: N.textT, marginTop: 4, lineHeight: 1.5 }}>
+              What percentage of people who had the product in their hands complained? {"\u2014"} complaints {"\u00F7"} orders placed 2+ weeks ago (matched on order-placed date). Recent buyers can{"\u2019"}t have complained yet, so they don{"\u2019"}t count.{row.sampleSmall ? " Under 30 such orders \u2192 counts instead of percentages." : ""}
+            </div>
             {props.aiData && props.aiData.sinceEdit && (
               <div style={{ marginTop: 6 }}>
                 <button onClick={function () { setShowSince(!showSince); }}
@@ -1669,7 +1695,7 @@ export default function ComplaintDashboard() {
         try {
           if (store.complaintsUrl) {
             console.log("[load] fetching complaints CSV\u2026");
-            var cT = await (await fetch(store.complaintsUrl)).text();
+            var cT = await (await fetchT(store.complaintsUrl)).text();
             console.log("[load] complaints CSV: " + cT.length + " chars");
             var cD = parseComplaintsCSV(cT, store.name);
             console.log("[load] complaints parsed: " + cD.length + " rows, with order date: " + cD.filter(function (x) { return x.orderWeek != null; }).length);
@@ -1677,7 +1703,7 @@ export default function ComplaintDashboard() {
           }
           if (store.ordersUrl) {
             console.log("[load] fetching orders CSV\u2026");
-            var oT = await (await fetch(store.ordersUrl)).text();
+            var oT = await (await fetchT(store.ordersUrl)).text();
             var oD = parseOrdersCSV(oT);
             console.log("[load] orders parsed: " + oD.length + " products");
             if (oD.length > 0) { ords = ords.concat(oD); fetched = true; }
@@ -1686,7 +1712,7 @@ export default function ComplaintDashboard() {
         // Contribution margin (refund rate, col O)
         try {
           if (store.contribUrl) {
-            var mT = await (await fetch(store.contribUrl)).text();
+            var mT = await (await fetchT(store.contribUrl)).text();
             var cm = parseContribCSV(mT);
             console.log("[contrib] parsed " + Object.keys(cm).length + " rows from margin CSV");
             if (Object.keys(cm).length === 0) console.warn("[contrib] first 300 chars of CSV \u2014 paste this to debug:", mT.slice(0, 300));
@@ -1697,22 +1723,22 @@ export default function ComplaintDashboard() {
       // Complaint Detail (optional, global)
       try {
         if (COMPLAINT_DETAIL_CSV_URL) {
-          var dT = await (await fetch(COMPLAINT_DETAIL_CSV_URL)).text();
+          var dT = await (await fetchT(COMPLAINT_DETAIL_CSV_URL)).text();
           var dD = parseComplaintsCSV(dT, store ? store.name : "");
           // Only keep detail rows that actually carry a summary; merge in.
           comps = comps.concat(dD.filter(function (c) { return c.summary; }).map(function (c) { return Object.assign({}, c, { detailOnly: true }); }));
         }
       } catch (e) { /* no-op */ }
       try {
-        var aT = await (await fetch(ACTIONS_CSV_URL)).text();
+        var aT = await (await fetchT(ACTIONS_CSV_URL)).text();
         acts = parseActionsCSV(aT);
       } catch (e) { /* no-op */ }
       try {
-        var stoppedT = await (await fetch(STOPPED_ADS_CSV_URL)).text();
+        var stoppedT = await (await fetchT(STOPPED_ADS_CSV_URL)).text();
         setSheetStopped(parseStoppedAdsCSV(stoppedT));
       } catch (e) { /* no-op */ }
       try {
-        var cfgT = await (await fetch(CONFIG_CSV_URL)).text();
+        var cfgT = await (await fetchT(CONFIG_CSV_URL)).text();
         var cfg = parseConfigCSV(cfgT, DEFAULT_ZONES);
         setZones(cfg.zones);
         if (cfg.minSales != null) setMinSales(cfg.minSales);
@@ -1789,8 +1815,10 @@ export default function ComplaintDashboard() {
   var complaints = useMemo(function () {
     // Numerator matches the denominator's order window exactly: a complaint counts in the
     // window its ORDER was placed in (exact date when enriched, week-2 fallback otherwise).
+    // MATURED window: only orders placed >= 2 weeks ago count — those customers HAVE the
+    // product in hand and could have complained. Rate = "what % of people holding it complained?"
     var lo = Math.max(1, weekRange[0] - LAG_WEEKS);
-    var hi = Math.max(latestDataWeek || 0, weekRange[1] - LAG_WEEKS, 1);
+    var hi = Math.max(1, (latestDataWeek || weekRange[1]) - LAG_WEEKS);
     return allComplaints.filter(function (c) {
       if (c.detailOnly) return false;
       var ow = effOrderWeek(c);
@@ -1798,9 +1826,9 @@ export default function ComplaintDashboard() {
     });
   }, [allComplaints, weekRange, latestDataWeek]);
 
-  // Denominator window runs through the LATEST order week: a new product's 123 recent orders
-  // must count, not just the 7 that predate the last complaint week minus 2 (the Linora bug).
-  var ordersWR = [Math.max(1, weekRange[0] - LAG_WEEKS), Math.max(latestDataWeek || 0, weekRange[1] - LAG_WEEKS, 1)];
+  // Denominator = MATURED orders only (placed through latestDataWeek - 2): the customers who
+  // actually hold the product. Recent buyers can't have complained yet and must not dilute the rate.
+  var ordersWR = [Math.max(1, weekRange[0] - LAG_WEEKS), Math.max(1, (latestDataWeek || weekRange[1]) - LAG_WEEKS)];
 
   var orderTotals = useMemo(function () {
     var map = {};
@@ -1901,6 +1929,8 @@ export default function ComplaintDashboard() {
   var heatmapData = useMemo(function () {
     var rows = filteredProductData.map(function (p) {
       var row = Object.assign({}, p);
+      row.maturedOrders = p.orders;
+      row.sampleSmall = p.orders < 30; // under 30 matured orders a percentage is noise, not a rate
       CATEGORIES.forEach(function (cat) {
         var count = p[cat.key] || 0;
         row[cat.key] = p.orders > 0 ? parseFloat(((count / p.orders) * 100).toFixed(2)) : 0;
@@ -2092,10 +2122,7 @@ export default function ComplaintDashboard() {
         category: cat.label,
         dashboardPct: frow[cat.key] || 0,
         count: frow[cat.key + "_count"] || 0,
-        recentPct: recO >= 30 ? +(recC / recO * 100).toFixed(1) : null,
-        recentOrders: recO,
-        priorPct: priO >= 30 ? +(priC / priO * 100).toFixed(1) : null,
-        priorOrders: priO,
+        recentCount: recC,
         warningAt: z.amber[0], problemAt: z.red[0],
       };
     });
@@ -2124,8 +2151,8 @@ export default function ComplaintDashboard() {
       sinceEdit: sinceEdit,
       catStats: catStats,
       windows: {
-        dashboard: "orders W" + ordersWR[0] + "\u2013W" + ordersWR[1] + " (" + frow.orders + " orders) \u2014 the same numbers shown on the dashboard tiles",
-        recentTrend: latestCW != null ? "orders placed W" + (latestCW - 1) + "\u2013W" + latestCW + " (" + recO + " orders; complaints matched by order-placed date)" : "n/a",
+        dashboard: "complaints \u00F7 MATURED orders (placed W" + ordersWR[0] + "\u2013W" + ordersWR[1] + ", i.e. 2+ weeks ago \u2014 customers who HAVE the product; " + frow.orders + " orders). Same numbers as the dashboard tiles.",
+        recentTrend: "removed \u2014 dashboardPct is the only rate",
       },
       ordersRamp: { last2wOrders: recent2O, prev2wOrders: prev2O, justScaled: !!frow.scaleRisk || (recent2O >= 10 && recent2O >= 1.8 * Math.max(prev2O, 1)), firstScaleWeek: frow.firstScaleWeek },
       product: titleByKey[aiKey] || aiKey,
@@ -2140,6 +2167,8 @@ export default function ComplaintDashboard() {
       totalComplaints: rows.length,
       withText: texts.length,
       orders: frow.orders,
+      maturedOrders: frow.maturedOrders != null ? frow.maturedOrders : frow.orders,
+      sampleTooSmall: !!frow.sampleSmall,
       summaries: texts.slice(0, 40).map(function (c) { return { type: c.type, week: c.week, text: c.summary }; }),
     };
   }
@@ -2418,8 +2447,9 @@ export default function ComplaintDashboard() {
               if (resp.ok && !j.error) window.localStorage.setItem(k, JSON.stringify(j));
               else j = null;
             }
-            if (j && (j.noActionNeeded === true || NO_ACTION_RE.test(String(j.summary || "") + " " + String(j.recommendation || "")))) {
-              noActionKeys.push(r.key);
+            var allSafe = d.catStats.every(function (c2) { return (c2.dashboardPct || 0) < c2.warningAt; });
+            if (j && (allSafe || j.noActionNeeded === true || NO_ACTION_RE.test(String(j.summary || "") + " " + String(j.recommendation || "")))) {
+              noActionKeys.push(r.key); // applies to Active, New arrivals, and Edited alike
             }
           } catch (e) { /* keep going */ }
         })();
@@ -2633,7 +2663,7 @@ export default function ComplaintDashboard() {
                       {row.orders7d != null ? row.orders7d.toLocaleString() : "\u2014"}
                     </td>
                     <td style={{ padding: "5px 7px", textAlign: "left", fontWeight: 700, fontSize: 12, borderBottom: "1px solid " + N.border, color: row.pct >= KILL_TOTAL_THRESHOLD ? N.red : N.text, background: row.pct >= KILL_TOTAL_THRESHOLD ? "rgba(255,115,105,0.12)" : "transparent" }}>
-                      {fmtPct(row.pct)}
+                      {row.sampleSmall ? row.complaints + "\u00D7" : fmtPct(row.pct)}
                     </td>
                     <td style={{ padding: "5px 7px", textAlign: "left", borderBottom: "1px solid " + N.border, whiteSpace: "nowrap" }}>
                       {row.killSignal ? (
