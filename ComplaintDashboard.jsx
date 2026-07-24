@@ -258,7 +258,7 @@ function parseOrdersCSV(text) {
     if (c.indexOf("product") !== -1 && c.indexOf("id") !== -1) ci.pid = i;
     if (c.indexOf("product") !== -1 && c.indexOf("name") !== -1) ci.product = i;
     if (c.indexOf("image") !== -1 || c.indexOf("photo") !== -1 || c === "img") ci.image = i;
-    var wm = c.match(/^w(\d+)$/);
+    var wm = c.match(/^w(?:eek)?\s*(\d+)$/); // matches "w24", "W24", and "Week 24"
     if (wm) ci.weekCols[parseInt(wm[1])] = i;
   });
   if (ci.product === -1) {
@@ -590,6 +590,7 @@ function Logo() {
 
 /* Status chip */
 var STATUS_STYLES = {
+  "New arrival": { color: "#eab308", bg: "rgba(234,179,8,0.12)", border: "rgba(234,179,8,0.35)" },
   Active:   { color: N.green,  bg: "rgba(52,211,153,0.12)",  border: "rgba(52,211,153,0.3)" },
   Edited:   { color: N.blue,   bg: "rgba(82,156,202,0.14)",  border: "rgba(82,156,202,0.35)" },
   Inactive: { color: N.grey,   bg: "rgba(255,255,255,0.05)", border: "rgba(255,255,255,0.12)" },
@@ -1847,7 +1848,7 @@ export default function ComplaintDashboard() {
       var comp = cMap[k] ? cMap[k].total : 0;
       var pct = ord > 0 ? (comp / ord) * 100 : 0;
       var wk = ordersByKey[k] ? ordersByKey[k].weekOrders : {};
-      var weekNums = Object.keys(wk).map(Number);
+      var weekNums = Object.keys(wk).map(Number).filter(function (w) { return (wk[w] || 0) > 0; }); // only weeks with real sales
       var firstWeek = weekNums.length > 0 ? Math.min.apply(null, weekNums) : null;
       // Current week is always partial → count latest data week + the week before it.
       var orders7d = latestDataWeek > 0 ? ((wk[latestDataWeek] || 0) + (wk[latestDataWeek - 1] || 0)) : null;
@@ -1855,9 +1856,9 @@ export default function ComplaintDashboard() {
       // New arrival = FIRST SALE ever within the last ~4 data weeks (firstWeek = earliest week with any orders)
       var isNewArrival = firstWeek != null && firstWeek >= latestDataWeek - 3;
       var status = isStopped ? "Stopped"
-                 : (orders7d != null && orders7d < INACTIVE_SALES_7D) ? "Inactive"
                  : editedRecently[k] ? "Edited"
-                 : isNewArrival ? "New arrival"
+                 : isNewArrival ? "New arrival" // outranks Inactive: a fresh product with few sales is NEW, not dead
+                 : (orders7d != null && orders7d < INACTIVE_SALES_7D) ? "Inactive"
                  : "Active";
       return Object.assign({
         key: k,
@@ -1879,7 +1880,7 @@ export default function ComplaintDashboard() {
       for (var i = 0; i < EXCLUDE_TITLE_PATTERNS.length; i++) {
         if (EXCLUDE_TITLE_PATTERNS[i].test(t)) return false;
       }
-      if (p.orders < minSales) return false;
+      if (p.orders < minSales && p.status !== "New arrival") return false; // fresh products' sales fall outside the lagged window — never hide them
       if (statusFilter !== "all" && p.status.toLowerCase() !== statusFilter) return false;
       return true;
     });
@@ -2036,6 +2037,7 @@ export default function ComplaintDashboard() {
   // Payload for the AI analysis: ALL feedback since the latest edit (or all data if never edited).
   function buildAIPayload(aiKey) {
     var frow = heatmapData.find(function (r) { return r.key === aiKey; });
+    if (!frow) frow = productData.find(function (r) { return r.key === aiKey; }); // row outside the current status filter (run-all)
     if (!frow) return null;
     var acts = actionsByProduct[aiKey] || [];
     var sinceWeek = null;
@@ -2140,7 +2142,7 @@ export default function ComplaintDashboard() {
   }
   var focusAI = useMemo(function () {
     return focusedProduct ? buildAIPayload(focusedProduct) : null;
-  }, [focusedProduct, heatmapData, allComplaints, actionsByProduct, ordersByKey, titleByKey, zones, latestDataWeek, ordersWR, contribData]);
+  }, [focusedProduct, heatmapData, productData, allComplaints, actionsByProduct, ordersByKey, titleByKey, zones, latestDataWeek, ordersWR, contribData]);
 
   // One-line issue summary per product for the table column (cached AI bullet first, heuristic fallback)
   var issueByKey = useMemo(function () {
@@ -2169,7 +2171,7 @@ export default function ComplaintDashboard() {
       out[row.key] = worst ? worst.label + " " + worst.v.toFixed(1) + "% \u2014 warning" : null;
     });
     return out;
-  }, [heatmapData, allComplaints, actionsByProduct, ordersByKey, zones, latestDataWeek, ordersWR, contribData, selectedStore, runState.running]);
+  }, [heatmapData, productData, allComplaints, actionsByProduct, ordersByKey, zones, latestDataWeek, ordersWR, contribData, selectedStore, runState.running]);
   // Data payloads for the floating widgets
   var reportData = useMemo(function () {
     var recentActions = [];
@@ -2357,9 +2359,15 @@ export default function ComplaintDashboard() {
 
   async function runAllRecommendations() {
     if (runState.running) return;
-    var rows = heatmapData;
+    // Always Active + New arrivals + Edited (all the reviewable statuses), regardless of the current filter
+    var rows = productData.filter(function (p) {
+      var t = p.product || "";
+      for (var xi = 0; xi < EXCLUDE_TITLE_PATTERNS.length; xi++) { if (EXCLUDE_TITLE_PATTERNS[xi].test(t)) return false; }
+      if (p.orders < minSales && p.status !== "New arrival") return false;
+      return p.status === "Active" || p.status === "New arrival" || p.status === "Edited";
+    });
     if (rows.length === 0) return;
-    if (!window.confirm("Run the AI analysis for all " + rows.length + " visible products in the background?\n\nThis calls the Claude API once per product (a few cents each) and can take a couple of minutes. Already-analyzed products are skipped.")) return;
+    if (!window.confirm("Run the AI analysis for all " + rows.length + " Active, New arrival, and Edited products in the background?\n\nThis calls the Claude API once per product (a few cents each) and can take a couple of minutes. Already-analyzed products are skipped.")) return;
     setRunState({ running: true, done: 0, total: rows.length });
     // Phase 0: fill missing "order placed" dates via Shopify (Apps Script does the lookups).
     if (APPS_SCRIPT_URL) {
