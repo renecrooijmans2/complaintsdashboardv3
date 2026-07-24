@@ -1764,20 +1764,6 @@ export default function ComplaintDashboard() {
     return Array.from(ws).sort(function (a, b) { return a - b; });
   }, [allComplaints, allOrders]);
 
-  var complaints = useMemo(function () {
-    // Numerator matches the denominator's order window exactly: a complaint counts in the
-    // window its ORDER was placed in (exact date when enriched, week-2 fallback otherwise).
-    var lo = Math.max(1, weekRange[0] - LAG_WEEKS);
-    var hi = Math.max(1, weekRange[1] - LAG_WEEKS);
-    return allComplaints.filter(function (c) {
-      if (c.detailOnly) return false;
-      var ow = effOrderWeek(c);
-      return ow != null && ow >= lo && ow <= hi;
-    });
-  }, [allComplaints, weekRange]);
-
-  var ordersWR = [Math.max(1, weekRange[0] - LAG_WEEKS), Math.max(1, weekRange[1] - LAG_WEEKS)];
-
   // Merged per-key week orders + image + latest data week
   var ordersByKey = useMemo(function () {
     var map = {};
@@ -1798,6 +1784,23 @@ export default function ComplaintDashboard() {
     });
     return mx;
   }, [ordersByKey]);
+
+
+  var complaints = useMemo(function () {
+    // Numerator matches the denominator's order window exactly: a complaint counts in the
+    // window its ORDER was placed in (exact date when enriched, week-2 fallback otherwise).
+    var lo = Math.max(1, weekRange[0] - LAG_WEEKS);
+    var hi = Math.max(latestDataWeek || 0, weekRange[1] - LAG_WEEKS, 1);
+    return allComplaints.filter(function (c) {
+      if (c.detailOnly) return false;
+      var ow = effOrderWeek(c);
+      return ow != null && ow >= lo && ow <= hi;
+    });
+  }, [allComplaints, weekRange, latestDataWeek]);
+
+  // Denominator window runs through the LATEST order week: a new product's 123 recent orders
+  // must count, not just the 7 that predate the last complaint week minus 2 (the Linora bug).
+  var ordersWR = [Math.max(1, weekRange[0] - LAG_WEEKS), Math.max(latestDataWeek || 0, weekRange[1] - LAG_WEEKS, 1)];
 
   var orderTotals = useMemo(function () {
     var map = {};
@@ -1856,9 +1859,9 @@ export default function ComplaintDashboard() {
       // New arrival = FIRST SALE ever within the last ~4 data weeks (firstWeek = earliest week with any orders)
       var isNewArrival = firstWeek != null && firstWeek >= latestDataWeek - 3;
       var status = isStopped ? "Stopped"
+                 : (orders7d != null && orders7d < INACTIVE_SALES_7D) ? "Inactive" // < 5 sales / 14d = Inactive, ALWAYS, no matter what
                  : editedRecently[k] ? "Edited"
-                 : isNewArrival ? "New arrival" // outranks Inactive: a fresh product with few sales is NEW, not dead
-                 : (orders7d != null && orders7d < INACTIVE_SALES_7D) ? "Inactive"
+                 : isNewArrival ? "New arrival"
                  : "Active";
       return Object.assign({
         key: k,
@@ -2344,7 +2347,7 @@ export default function ComplaintDashboard() {
     );
   };
 
-  var visibleColCount = 8;
+  var visibleColCount = statusFilter === "active" ? 7 : 8;
   var focusedRow = focusedProduct ? heatmapData.find(function (r) { return r.key === focusedProduct; }) : null;
   // Cache the last seen row: after "Log action" the status flips to Edited and the row can drop
   // out of the filtered view instantly — without this cache the panel vanished into a black screen.
@@ -2394,7 +2397,7 @@ export default function ComplaintDashboard() {
     var NO_ACTION_RE = /no action needed|no real problem|all rates in the safe zone|leave it alone|no edit needed|only shipping/i;
     var rules = getCustomRules();
     var done = 0;
-    var chunk = 3;
+    var chunk = 10; // 10 parallel calls per batch
     for (var i = 0; i < rows.length; i += chunk) {
       var batch = rows.slice(i, i + chunk).map(function (r) {
         return (async function () {
@@ -2576,7 +2579,7 @@ export default function ComplaintDashboard() {
                   { label: sortableHeader("Total %", "pct"), align: "left", w: 70 },
                   { label: "Signal", align: "left", w: 118 },
                   { label: "Product", align: "left" },
-                ].concat([{ label: statusFilter === "edited" ? "Last edit" : "Last edit / issue", align: "left", w: 240 }]).map(function (h, i) {
+                ].concat(statusFilter === "active" ? [] : [{ label: statusFilter === "edited" ? "Last edit" : "Last edit / issue", align: "left", w: 240 }]).map(function (h, i) {
                   return (
                     <th key={i} style={{ background: N.bgS, color: N.textS, fontWeight: 600, fontSize: 8, textTransform: "uppercase", letterSpacing: "0.03em", padding: "6px 7px", textAlign: h.align, whiteSpace: "nowrap", position: "sticky", top: 0, width: h.w || "auto" }}>
                       {h.label}
@@ -2609,7 +2612,7 @@ export default function ComplaintDashboard() {
                     onMouseLeave={function () { if (!focusedProduct) setHoveredProduct(null); }}
                     style={{
                       background: isFocused ? "rgba(82,156,202,0.08)" : (isHovered ? "rgba(255,255,255,0.03)" : "transparent"),
-                      opacity: dimmed ? 0.1 : (isChecked ? 0.4 : 1),
+                      opacity: dimmed ? 0.1 : (isChecked ? 0.22 : 1),
                       filter: dimmed ? "blur(2.5px) brightness(0.45)" : "none",
                       transition: "opacity 0.2s, filter 0.2s",
                     }}
@@ -2662,7 +2665,7 @@ export default function ComplaintDashboard() {
                       style={{ padding: "5px 7px", textAlign: "left", color: N.text, fontWeight: 500, borderBottom: "1px solid " + N.border, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: isChecked ? "line-through" : "none", cursor: "pointer" }}>
                       <span style={{ color: isStopped ? N.textS : N.text, borderBottom: "1px dotted rgba(255,255,255,0.2)" }}>{row.product}</span>
                                           </td>
-                    <td style={{ padding: "5px 7px", textAlign: "left", color: N.textS, borderBottom: "1px solid " + N.border, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 10.5, maxWidth: 240 }}
+                    {statusFilter !== "active" && <td style={{ padding: "5px 7px", textAlign: "left", color: N.textS, borderBottom: "1px solid " + N.border, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 10.5, maxWidth: 240 }}
                       title={(function () {
                         var la = (rA || []).slice().sort(function (a, b) { return (b.week || 0) - (a.week || 0); })[0];
                         if (la) return "W" + la.week + " \u00B7 " + la.action + (la.notes ? " \u2014 " + la.notes : "");
@@ -2675,7 +2678,7 @@ export default function ComplaintDashboard() {
                         if (!iss) return <span style={{ color: N.textT }}>{"\u2014"}</span>;
                         return <span>{iss}</span>;
                       })()}
-                    </td>
+                    </td>}
                   </tr>
                 ];
                 return rowEls;
