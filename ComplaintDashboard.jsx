@@ -1255,8 +1255,9 @@ function FocusPanel(props) {
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, width: 170 }}>
                   {qc.qcImages.slice(0, 4).map(function (u, i) {
                     return (
-                      <a key={i} href={u} target="_blank" rel="noreferrer">
-                        <img src={u} alt={"QC " + (i + 1)} title="Click to enlarge" onClick={function () { setPreview(u); }} style={{ width: 82, height: 82, objectFit: "cover", borderRadius: 12, border: "1px solid " + N.border, background: N.bg, display: "block", cursor: "zoom-in" }} />
+                      <a key={i} href={u} target="_blank" rel="noreferrer" title={"Click to enlarge \u00B7 Cmd/Ctrl-click opens the file"}
+                        onClick={function (e) { if (e.metaKey || e.ctrlKey || e.shiftKey) return; e.preventDefault(); setPreview(u); }}>
+                        <img src={u} alt={"QC " + (i + 1)} style={{ width: 82, height: 82, objectFit: "cover", borderRadius: 12, border: "1px solid " + N.border, background: N.bg, display: "block", cursor: "zoom-in" }} />
                       </a>
                     );
                   })}
