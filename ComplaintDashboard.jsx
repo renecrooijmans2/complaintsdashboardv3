@@ -1163,6 +1163,20 @@ function FocusPanel(props) {
   var stQC = useState(null); var qc = stQC[0]; var setQC = stQC[1];
   var stQCE = useState(""); var qcErr = stQCE[0]; var setQCErr = stQCE[1];
   var stQCD = useState(false); var qcDone = stQCD[0]; var setQCDone = stQCD[1];
+
+  // Esc closes the enlarged photo first — capture phase + stopImmediatePropagation
+  // so the panel's own Esc handler doesn't fire and close the whole focus view.
+  useEffect(function () {
+    if (!preview) return;
+    function onKey(e) {
+      if (e.key !== "Escape") return;
+      e.stopImmediatePropagation();
+      setPreview(null);
+    }
+    window.addEventListener("keydown", onKey, true);
+    return function () { window.removeEventListener("keydown", onKey, true); };
+  }, [preview]);
+
   useEffect(function () {
     setQC(null); setQCErr(""); setQCDone(false);
     var alive = true;
@@ -1213,7 +1227,6 @@ function FocusPanel(props) {
       <div style={{ fontSize: 14, fontWeight: 700, color: N.text, display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
         <span style={{ flex: 1 }}>{row.product}</span>
         {qc && qc.notionUrl && <a href={qc.notionUrl} target="_blank" rel="noreferrer" style={{ fontSize: 10, fontWeight: 500, color: N.textS, textDecoration: "none" }}>Notion {"\u2197"}</a>}
-        {ads && ads.fuzzy && <span style={{ fontSize: 9, color: N.orange }}>(ad-DB match unverified{ads.matchedTitle ? ": \u201C" + ads.matchedTitle + "\u201D" : ""} {"\u2014"} links below may be another product)</span>}
         {props.onClose && (
           <button onClick={props.onClose} style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit" }}>Exit (Esc)</button>
         )}
@@ -1221,7 +1234,8 @@ function FocusPanel(props) {
       {qcErr && <div style={{ fontSize: 9, color: N.textT, marginTop: -8 }}>Notion QC: {qcErr}</div>}
       {adsErr && <div style={{ fontSize: 9, color: N.textT, marginTop: -8 }}>Notion ads/competitor: {adsErr} {"\u2014"} deploy the latest api/notion-ads.js if this persists</div>}
       {preview && createPortal(
-        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.9)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", animation: "lbFade 0.15s ease" }}>
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.9)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", cursor: "zoom-out", animation: "lbFade 0.15s ease" }}
+          onClick={function () { setPreview(null); }}>
           <style>{"@keyframes lbFade{from{opacity:0}to{opacity:1}}@keyframes lbPop{from{opacity:0;transform:scale(0.88)}to{opacity:1;transform:scale(1)}}"}</style>
           <img src={preview} alt="preview" style={{ maxWidth: "92vw", maxHeight: "92vh", width: "auto", height: "auto", objectFit: "contain", borderRadius: 12, boxShadow: "0 16px 64px rgba(0,0,0,0.9)", animation: "lbPop 0.18s cubic-bezier(0.2, 0.8, 0.3, 1)" }} />
         </div>,
@@ -1231,7 +1245,7 @@ function FocusPanel(props) {
       <div style={{ display: "grid", gridTemplateColumns: (imgSrc || (qc && qc.qcImages && qc.qcImages.length > 0)) ? "175px 1fr 1fr" : "1fr 1fr", gap: 16, alignItems: "start" }}>
         {(imgSrc || (qc && qc.qcImages && qc.qcImages.length > 0)) && (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {imgSrc && <img src={imgSrc} alt={row.product} onMouseEnter={function () { setPreview(imgSrc); }} onMouseLeave={function () { setPreview(null); }} style={{ width: 170, height: 170, objectFit: "cover", borderRadius: 10, border: "1px solid " + N.border, background: N.bg, cursor: "zoom-in" }} />}
+            {imgSrc && <img src={imgSrc} alt={row.product} title="Click to enlarge" onClick={function () { setPreview(imgSrc); }} style={{ width: 170, height: 170, objectFit: "cover", borderRadius: 10, border: "1px solid " + N.border, background: N.bg, cursor: "zoom-in" }} />}
             {prod && prod.url && (
               <a href={prod.url} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: N.textS, textDecoration: "none", textAlign: "center" }}>View on site {"\u2197"}</a>
             )}
@@ -1242,7 +1256,7 @@ function FocusPanel(props) {
                   {qc.qcImages.slice(0, 4).map(function (u, i) {
                     return (
                       <a key={i} href={u} target="_blank" rel="noreferrer">
-                        <img src={u} alt={"QC " + (i + 1)} onMouseEnter={function () { setPreview(u); }} onMouseLeave={function () { setPreview(null); }} style={{ width: 82, height: 82, objectFit: "cover", borderRadius: 12, border: "1px solid " + N.border, background: N.bg, display: "block", cursor: "zoom-in" }} />
+                        <img src={u} alt={"QC " + (i + 1)} title="Click to enlarge" onClick={function () { setPreview(u); }} style={{ width: 82, height: 82, objectFit: "cover", borderRadius: 12, border: "1px solid " + N.border, background: N.bg, display: "block", cursor: "zoom-in" }} />
                       </a>
                     );
                   })}
@@ -1270,8 +1284,9 @@ function FocusPanel(props) {
                     {showVariants && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, width: 170 }}>
                       {ads.variantPhotos.slice(0, 4).map(function (u, i) {
                         return (
-                          <a key={i} href={u} target="_blank" rel="noreferrer">
-                            <img src={u} alt={"variant " + (i + 1)} onMouseEnter={function () { setPreview(u); }} onMouseLeave={function () { setPreview(null); }}
+                          <a key={i} href={u} target="_blank" rel="noreferrer" title="Click to enlarge \u00B7 Cmd/Ctrl-click opens the file"
+                            onClick={function (e) { if (e.metaKey || e.ctrlKey || e.shiftKey) return; e.preventDefault(); setPreview(u); }}>
+                            <img src={u} alt={"variant " + (i + 1)}
                               style={{ width: 82, height: 82, objectFit: "cover", borderRadius: 12, border: "1px solid " + N.border, background: N.bg, display: "block", cursor: "zoom-in" }} />
                           </a>
                         );
