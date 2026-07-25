@@ -57,6 +57,15 @@ var COMPLAINT_DETAIL_CSV_URL = "";
 // Setup: see apps-script/Code.gs + README. Leave "" to hide the buttons.
 var APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyPf4MYQO4r4NB9yCAa1S7zrMGCcvMCrCuEJGwJfZScPfmGCgKfahIW2ugh9MqDhr0/exec";
 
+/* True when the dashboard runs on a dev server that has no serverless functions
+   (vite dev serves the SPA only, so every /api/* call 404s). */
+function isLocalDev() {
+  try {
+    var h = window.location.hostname;
+    return h === "localhost" || h === "127.0.0.1" || h.indexOf("192.168.") === 0;
+  } catch (e) { return false; }
+}
+
 /* Custom analysis rules (owner feedback) — stored locally, injected into every /api/ai call. */
 function getCustomRules() {
   try { return JSON.parse(window.localStorage.getItem("ai-custom-rules") || "[]"); } catch (e) { return []; }
@@ -70,28 +79,124 @@ function makeAIKey(storeName, rowKey, d) {
 }
 
 /* ── THEME ── */
+// Nuance-style dark fintech palette: near-black canvas, ink cards, hairline borders, lavender accent
 var N = {
-  bg: "#252525",
-  bgS: "#2F3437",
-  bgC: "#252525",
-  text: "rgba(255,255,255,0.9)",
-  textS: "rgba(255,255,255,0.5)",
-  textT: "rgba(255,255,255,0.3)",
-  border: "rgba(255,255,255,0.06)",
+  bg: "#0A0B0D",          // canvas — neutral near-black
+  bgS: "#131519",         // elevated surface (table head, rail)
+  bgC: "#101215",         // card
+  card2: "#161A1F",       // inner card / hover
+  text: "rgba(236,238,242,0.94)",
+  textS: "rgba(236,238,242,0.56)",
+  textT: "rgba(236,238,242,0.32)",
+  border: "rgba(210,218,230,0.085)",
+  borderS: "rgba(210,218,230,0.15)",
   green: "#34D399",
-  red: "#FF7369",
-  orange: "#FFA344",
-  blue: "#529CCA",
-  grey: "rgba(255,255,255,0.35)",
+  red: "#FF6B6B",
+  orange: "#FBBF24",
+  blue: "#4C8DF6",
+  blueSoft: "rgba(76,141,246,0.12)",
+  blueText: "#8FB8F5",
+  cyan: "#4CC9F0",
+  violet: "#8AA2C8",
+  grey: "rgba(236,238,242,0.38)",
+  // Quiet accent used for pills / secondary buttons (same language as the Active tag)
+  quiet: { bg: "rgba(76,141,246,0.11)", border: "rgba(76,141,246,0.28)", text: "#8FB8F5" },
+  glow: "0 0 0 1px rgba(56,140,255,0.35), 0 8px 30px rgba(56,140,255,0.22)",
+  cardShadow: "0 1px 0 rgba(255,255,255,0.04) inset, 0 12px 32px rgba(0,0,0,0.45)",
+  grad: "linear-gradient(135deg,#4C8DF6 0%,#54C3E8 100%)",
 };
-var FONT = "-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif";
+var FONT = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+
+/* ── GLOBAL UI SHELL STYLES ──
+   One injected stylesheet so every native control (select, input, checkbox,
+   scrollbar, button) picks up the dark-blue look without touching 2.000 inline styles. */
+function GlobalStyles() {
+  return (
+    <style>{`
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+      @keyframes spin{to{transform:rotate(360deg)}}
+      @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+      @keyframes riseIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+      @keyframes pulseDot{0%,100%{opacity:1}50%{opacity:.35}}
+      * { box-sizing: border-box; }
+      body { background: ${N.bg}; }
+      ::-webkit-scrollbar { width: 10px; height: 10px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: rgba(210,218,230,0.14); border-radius: 99px; border: 2px solid transparent; background-clip: content-box; }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(76,141,246,0.42); background-clip: content-box; }
+      select, input, textarea { font-family: ${FONT}; color: ${N.text}; }
+      select { appearance: none; -webkit-appearance: none; cursor: pointer; padding-right: 14px;
+        background-image: linear-gradient(45deg, transparent 50%, ${N.textT} 50%), linear-gradient(135deg, ${N.textT} 50%, transparent 50%);
+        background-position: right 4px center, right 0px center; background-size: 4px 4px, 4px 4px; background-repeat: no-repeat; }
+      select option { background: ${N.bgS}; color: ${N.text}; }
+      input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+      input[type="checkbox"] { appearance: none; -webkit-appearance: none; width: 15px; height: 15px; border-radius: 5px;
+        border: 1.5px solid ${N.borderS}; background: rgba(255,255,255,0.03); cursor: pointer; position: relative; transition: all .15s ease; }
+      input[type="checkbox"]:hover { border-color: ${N.blue}; box-shadow: 0 0 0 3px rgba(76,141,246,0.14); }
+      input[type="checkbox"]:checked { background: ${N.grad}; border-color: transparent; }
+      input[type="checkbox"]:checked::after { content: ""; position: absolute; left: 4.5px; top: 1.5px; width: 4px; height: 8px;
+        border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(42deg); }
+      button { transition: transform .12s ease, box-shadow .15s ease, background .15s ease, border-color .15s ease, opacity .15s; }
+      button:not(:disabled):hover { transform: translateY(-1px); }
+      button:not(:disabled):active { transform: translateY(0); }
+      button:focus-visible, select:focus-visible, input:focus-visible, [tabindex]:focus-visible {
+        outline: 2px solid ${N.blue}; outline-offset: 2px; }
+      .card { background: linear-gradient(180deg, rgba(255,255,255,0.028) 0%, rgba(255,255,255,0) 42%), ${N.bgC};
+        border: 1px solid ${N.border}; border-radius: 18px; box-shadow: ${N.cardShadow}; }
+      .rowHover:hover { background: rgba(56,140,255,0.055) !important; }
+      .navItem { position: relative; }
+      .navItem:hover { background: rgba(255,255,255,0.05); }
+      @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; } }
+    `}</style>
+  );
+}
+
+/* ── ICONS (stroke, 1.6px — matches the rail + KPI tiles) ── */
+function Ico(props) {
+  var s = props.size || 16;
+  var paths = {
+    grid: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z",
+    bolt: "M13 3 5 14h6l-1 7 8-11h-6z",
+    alert: "M12 4 3 20h18zM12 10v4M12 17.2v.1",
+    sparkle: "M12 3v6M12 15v6M3 12h6M15 12h6",
+    check: "M4 12.5 9 17.5 20 6.5",
+    pause: "M9 5v14M15 5v14",
+    box: "M12 3 3 7.5v9L12 21l9-4.5v-9zM3 7.5 12 12l9-4.5M12 12v9",
+    cart: "M3 4h2l2.5 11h10L20 7H6.5M9 20a1 1 0 1 0 0-.1M17 20a1 1 0 1 0 0-.1",
+    pct: "M6 18 18 6M8 8a1.5 1.5 0 1 0 .1 0M16 16a1.5 1.5 0 1 0 .1 0",
+    flame: "M12 3c3 4 5 5.5 5 9a5 5 0 0 1-10 0c0-2 1-3 1.5-4.5C9 9.5 11 7 12 3z",
+    refresh: "M20 11a8 8 0 1 0-1.5 5M20 5v6h-6",
+    settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.2A1.6 1.6 0 0 0 7.9 19.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 4 15H3.9a2 2 0 1 1 0-4H4a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 11 4V3.9a2 2 0 1 1 4 0V4a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.6 1.6 0 0 0 20 11h.1a2 2 0 1 1 0 4H20z",
+  };
+  return (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={props.color || "currentColor"}
+      strokeWidth={props.weight || 1.7} strokeLinecap="round" strokeLinejoin="round" style={props.style}>
+      <path d={paths[props.name] || paths.grid} />
+    </svg>
+  );
+}
+
+/* Soft tinted icon tile — the reference deck's signature KPI element */
+function IconTile(props) {
+  var c = props.color || N.blue;
+  return (
+    <div style={{
+      width: 34, height: 34, borderRadius: 11, display: "flex", alignItems: "center", justifyContent: "center",
+      background: "linear-gradient(150deg, " + c + "26 0%, " + c + "0D 100%)",
+      border: "1px solid " + c + "33", color: c, flexShrink: 0,
+      boxShadow: "0 4px 14px " + c + "1F",
+    }}>
+      <Ico name={props.icon} size={16} />
+    </div>
+  );
+}
 
 var CATEGORIES = [
-  { key: "too_large", label: "Too Large", color: "#529CCA" },
-  { key: "too_small", label: "Too Small", color: "#E255A1" },
-  { key: "looks_different", label: "Looks Different", color: "#FFA344" },
-  { key: "quality", label: "Quality / Defective", color: "#9A6DD7" },
-  { key: "other", label: "Other", color: "rgba(255,255,255,0.35)" },
+  { key: "too_large", label: "Too Large", color: "#818CF8" },
+  { key: "too_small", label: "Too Small", color: "#F472B6" },
+  { key: "looks_different", label: "Looks Different", color: "#FBBF24" },
+  { key: "quality", label: "Quality / Defective", color: "#8B5CF6" },
+  { key: "other", label: "Other", color: "rgba(245,243,248,0.38)" },
 ];
 
 var DEFAULT_ZONES = {
@@ -563,7 +668,7 @@ function getHeatBg(v, z) {
   if (v <= 0) return "rgba(255,255,255,0.02)";
   if (v < z.amber[0]) return "rgba(52,211,153,0.12)";
   if (v < z.red[0]) return "rgba(255,163,68,0.2)";
-  return "rgba(255,115,105,0.25)";
+  return "rgba(255,107,107,0.25)";
 }
 
 /* POST to the Apps Script webhook. text/plain avoids the CORS preflight. */
@@ -593,11 +698,14 @@ async function postToSheet(payload) {
   return json;
 }
 
-function Logo() {
+/* Evershop mark */
+function Logo(props) {
+  var sz = props.size || 22;
   return (
-    <svg width="28" height="28" viewBox="0 0 100 100" fill="none">
-      <rect x="5" y="5" width="90" height="90" rx="4" stroke="rgba(255,255,255,0.8)" strokeWidth="5" fill="none" />
-      <path d="M 10 75 Q 20 70 30 60 Q 40 45 50 50 Q 60 55 70 35 Q 80 20 90 25" stroke="rgba(255,255,255,0.85)" strokeWidth="6" strokeLinecap="round" fill="none" />
+    <svg width={sz} height={sz} viewBox="0 0 256 256" fill="none" aria-label="Evershop">
+      <g transform="translate(0,256) scale(0.1,-0.1)" fill={props.color || "currentColor"} stroke="none">
+        <path d="M350 1280 l0 -940 930 0 930 0 0 940 0 940 -930 0 -930 0 0 -940z m1780 818 c-1 -144 -109 -367 -210 -434 l-39 -26 -57 26 c-121 55 -153 32 -344 -244 -222 -320 -301 -407 -435 -481 -88 -48 -157 -112 -174 -160 l-11 -31 33 22 c17 12 82 45 142 75 190 92 224 127 453 467 185 274 216 297 304 227 59 -47 83 -52 133 -30 44 19 116 84 173 156 l32 40 0 -643 0 -642 -850 0 c-810 0 -850 1 -850 18 0 66 52 192 121 294 45 66 244 322 301 388 77 87 117 97 193 46 48 -33 89 -33 136 0 42 29 175 184 294 344 151 202 182 230 255 230 32 0 56 -7 84 -26 48 -33 37 -8 -21 49 -50 47 -92 61 -143 43 -58 -20 -111 -68 -266 -242 -158 -177 -203 -221 -238 -230 -22 -5 -48 6 -130 53 -31 19 -67 16 -108 -10 -20 -12 -128 -119 -239 -237 -110 -118 -210 -224 -220 -235 -19 -19 -19 -9 -19 608 l0 627 850 0 850 0 0 -42z" />
+      </g>
     </svg>
   );
 }
@@ -606,14 +714,15 @@ function Logo() {
 var STATUS_STYLES = {
   "New arrival": { color: "#eab308", bg: "rgba(234,179,8,0.12)", border: "rgba(234,179,8,0.35)" },
   Active:   { color: N.green,  bg: "rgba(52,211,153,0.12)",  border: "rgba(52,211,153,0.3)" },
-  Edited:   { color: N.blue,   bg: "rgba(82,156,202,0.14)",  border: "rgba(82,156,202,0.35)" },
+  Edited:   { color: N.blue,   bg: "rgba(56,140,255,0.14)",  border: "rgba(56,140,255,0.35)" },
   Inactive: { color: N.grey,   bg: "rgba(255,255,255,0.05)", border: "rgba(255,255,255,0.12)" },
-  Stopped:  { color: N.red,    bg: "rgba(255,115,105,0.1)",  border: "rgba(255,115,105,0.3)" },
+  Stopped:  { color: N.red,    bg: "rgba(255,107,107,0.1)",  border: "rgba(255,107,107,0.3)" },
 };
 function StatusChip(props) {
   var s = STATUS_STYLES[props.status] || STATUS_STYLES.Inactive;
   return (
-    <span style={{ fontSize: 9, fontWeight: 700, color: s.color, background: s.bg, border: "1px solid " + s.border, padding: "2px 7px", borderRadius: 3, letterSpacing: "0.03em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 9, fontWeight: 700, color: s.color, background: s.bg, border: "1px solid " + s.border, padding: "3px 8px", borderRadius: 99, letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
+      <span style={{ width: 5, height: 5, borderRadius: 99, background: s.color, boxShadow: "0 0 8px " + s.color, animation: props.status === "New arrival" ? "pulseDot 1.8s ease-in-out infinite" : "none" }} />
       {props.status}
     </span>
   );
@@ -641,7 +750,7 @@ function ActionHistory(props) {
                        : "none";
         var deltaColor = a.deltaPP == null ? N.textT : (a.deltaPP < -0.5 ? N.green : (a.deltaPP > 0.5 ? N.red : N.textS));
         if (confidence === "low" || confidence === "preliminary") {
-          deltaColor = a.deltaPP == null ? N.textT : (a.deltaPP < -0.5 ? "rgba(52,211,153,0.65)" : (a.deltaPP > 0.5 ? "rgba(255,115,105,0.65)" : N.textS));
+          deltaColor = a.deltaPP == null ? N.textT : (a.deltaPP < -0.5 ? "rgba(52,211,153,0.65)" : (a.deltaPP > 0.5 ? "rgba(255,107,107,0.65)" : N.textS));
         }
         var confTag = null;
         if (confidence === "low") confTag = { text: "Low confidence \u00B7 " + a.afterOrders + " orders after", color: N.textS };
@@ -651,21 +760,21 @@ function ActionHistory(props) {
         return (
           <div key={i} style={{ display: "flex", flexDirection: "column", gap: 4, padding: "8px 0", borderTop: i === 0 ? "none" : "1px solid " + N.border, opacity: a.pending ? 0.6 : 1 }}>
             <div style={{ display: "flex", gap: 10, alignItems: "baseline", fontSize: 11.5, flexWrap: "wrap" }}>
-              <span style={{ color: N.blue, fontWeight: 700, fontSize: 11.5, minWidth: 32 }}>W{a.week}</span>
-              <span style={{ fontSize: 11.5, color: N.textS, background: "rgba(82,156,202,0.12)", padding: "2px 7px", borderRadius: 3, whiteSpace: "nowrap" }}>{cat ? cat.label : a.category}</span>
+              <span style={{ color: N.textT, fontWeight: 700, fontSize: 11.5, minWidth: 32 }}>W{a.week}</span>
+              <span style={{ fontSize: 11.5, color: N.textS, background: "rgba(255,255,255,0.05)", border: "1px solid " + N.border, padding: "2px 7px", borderRadius: 10, whiteSpace: "nowrap" }}>{cat ? cat.label : a.category}</span>
               <span style={{ color: N.text, fontWeight: 600, flex: 1, minWidth: 160, fontSize: 11.5 }}>{a.action}</span>
               {a.date && <span style={{ fontSize: 9, color: N.textT }}>{a.date}</span>}
-              {a.status && <span style={{ fontSize: 9, color: a.status === "Active" || a.status === "Confirmed" ? N.green : N.orange, background: "rgba(255,255,255,0.05)", padding: "2px 6px", borderRadius: 3 }}>{a.status}</span>}
+              {a.status && <span style={{ fontSize: 9, color: a.status === "Active" || a.status === "Confirmed" ? N.green : N.orange, background: "rgba(255,255,255,0.05)", padding: "2px 6px", borderRadius: 10 }}>{a.status}</span>}
               {a.pending && <span style={{ fontSize: 9, color: N.orange }}>{"saving\u2026"}</span>}
               {canUndo && !a.pending && onEdit && (
                 <button onClick={function () { onEdit(a); }} title="Edit this log entry"
-                  style={{ background: "transparent", border: "1px solid rgba(82,156,202,0.35)", color: N.blue, fontSize: 9, padding: "1px 7px", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>
+                  style={{ background: "transparent", border: "1px solid rgba(56,140,255,0.35)", color: N.blue, fontSize: 9, padding: "1px 7px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>
                   Edit
                 </button>
               )}
               {canUndo && !a.pending && (
                 <button onClick={function () { onUndo(a); }} title="Remove this action from the sheet"
-                  style={{ background: "transparent", border: "1px solid rgba(255,115,105,0.3)", color: N.red, fontSize: 9, padding: "1px 7px", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>
+                  style={{ background: "transparent", border: "1px solid rgba(255,107,107,0.3)", color: N.red, fontSize: 9, padding: "1px 7px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>
                   {"\u21BA"} Undo
                 </button>
               )}
@@ -680,7 +789,7 @@ function ActionHistory(props) {
                 <span style={{ color: N.textT }}>Notes:</span> {a.notes}
               </div>
             )}
-            <div style={{ display: "flex", gap: 16, alignItems: "center", paddingLeft: 42, fontSize: 11.5, fontVariantNumeric: "tabular-nums", marginTop: 4, flexWrap: "wrap", background: "rgba(255,255,255,0.03)", borderRadius: 5, padding: "7px 12px 7px 12px" }}>
+            <div style={{ display: "flex", gap: 16, alignItems: "center", paddingLeft: 42, fontSize: 11.5, fontVariantNumeric: "tabular-nums", marginTop: 4, flexWrap: "wrap", background: "rgba(255,255,255,0.03)", borderRadius: 9, padding: "7px 12px 7px 12px" }}>
               {a.beforeOrders > 0 ? (
                 <div>
                   <span style={{ color: N.textS, fontSize: 11.5, marginRight: 6 }}>Before (W{a.beforeWindow[0]}{"\u2013"}{a.beforeWindow[1]}):</span>
@@ -706,7 +815,7 @@ function ActionHistory(props) {
                 </span>
               )}
               {confTag && (
-                <span style={{ fontSize: 9, color: confTag.color, background: "rgba(255,255,255,0.04)", padding: "2px 6px", borderRadius: 3, border: "1px solid " + N.border }}>
+                <span style={{ fontSize: 9, color: confTag.color, background: "rgba(255,255,255,0.04)", padding: "2px 6px", borderRadius: 10, border: "1px solid " + N.border }}>
                   {confTag.text}
                 </span>
               )}
@@ -730,7 +839,7 @@ function CategoryGrid(props) {
         var pct = row[c.key] || 0;
         var z = props.zones[c.key];
         return (
-          <div key={c.key} style={{ background: getHeatBg(pct, z), border: "1px solid " + N.border, borderRadius: 5, padding: "7px 9px", textAlign: "center" }}>
+          <div key={c.key} style={{ background: getHeatBg(pct, z), border: "1px solid " + N.border, borderRadius: 9, padding: "7px 9px", textAlign: "center" }}>
             <div style={{ fontSize: 9, color: N.textS, marginBottom: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.label}</div>
             {props.sampleSmall ? (
               <div>
@@ -896,7 +1005,7 @@ function AIPanel(props) {
   useEffect(function () { run(false); }, [props.rowKey, props.ready]);
 
   return (
-    <div style={{ background: N.bg, border: "1px solid " + N.border, borderRadius: 6, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
+    <div style={{ background: N.bg, border: "1px solid " + N.border, borderRadius: 10, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
         <div style={{ fontSize: 10, fontWeight: 700, color: N.blue }}>
           AI analysis {d && d.sinceWeek ? "\u00B7 feedback since last edit (W" + d.sinceWeek + ")" : "\u00B7 all feedback"}
@@ -907,20 +1016,25 @@ function AIPanel(props) {
       ) : ai.loading ? (
         <div style={{ fontSize: 10.5, color: N.textS }}>Analyzing {d.totalComplaints} complaints{"\u2026"}</div>
       ) : ai.error ? (
-        <div style={{ fontSize: 10, color: N.orange }}>
-          AI unavailable ({ai.error}). Works on the deployed Vercel site with ANTHROPIC_API_KEY set {"\u2014"} see README.
+        <div style={{ fontSize: 10, color: N.orange, lineHeight: 1.5 }}>
+          AI unavailable ({ai.error}).{" "}
+          {isLocalDev()
+            ? "You're on localhost \u2014 `vite dev` doesn't serve /api routes. Run `vercel dev` instead."
+            : String(ai.error).indexOf("404") !== -1
+              ? "The /api/ai function isn't deployed. Check that api/ai.js sits in the project root next to package.json, and that it's committed \u2014 then redeploy."
+              : "Check ANTHROPIC_API_KEY in the Vercel project env vars (Production scope) and redeploy."}
         </div>
       ) : ai.data ? (
         <>
           <div style={{ fontSize: 11.5, color: N.text, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{ai.data.summary}</div>
-          <div style={{ background: "rgba(82,156,202,0.08)", border: "1px solid rgba(82,156,202,0.3)", borderRadius: 5, padding: "8px 10px" }}>
+          <div style={{ background: "rgba(56,140,255,0.08)", border: "1px solid rgba(56,140,255,0.3)", borderRadius: 9, padding: "8px 10px" }}>
             <div onClick={function () { setOpenRec(!openRec); }} style={{ fontSize: 10, fontWeight: 700, color: N.blue, cursor: "pointer", userSelect: "none" }}>
               <span style={{ display: "inline-block", width: 14 }}>{openRec ? "\u2212" : "+"}</span>Recommendation
             </div>
             {openRec && <div style={{ fontSize: 11.5, color: N.text, lineHeight: 1.55, whiteSpace: "pre-wrap", marginTop: 4 }}>{ai.data.recommendation}</div>}
           </div>
           {ai.data.needsReneReview && (
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, background: "rgba(255,163,68,0.08)", border: "1px solid rgba(255,163,68,0.3)", borderRadius: 5, padding: "6px 10px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, background: "rgba(255,163,68,0.08)", border: "1px solid rgba(255,163,68,0.3)", borderRadius: 9, padding: "6px 10px" }}>
               <span style={{ fontSize: 10, color: N.orange, fontWeight: 600 }}>Image change {"\u2014"} send to Ren{"\u00E9"} for review before executing.</span>
               <button onClick={function () {
                 var msg = "REVIEW REQUEST \u2014 image change\n" +
@@ -930,34 +1044,34 @@ function AIPanel(props) {
                   (ai.data.deliverable ? "\n\nProposed fix:\n" + ai.data.deliverable : "");
                 try { navigator.clipboard.writeText(msg); } catch (e) { /* no-op */ }
               }}
-                style={{ background: "transparent", border: "1px solid rgba(255,163,68,0.4)", color: N.orange, fontSize: 9, fontWeight: 600, padding: "2px 10px", borderRadius: 3, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+                style={{ background: "transparent", border: "1px solid rgba(255,163,68,0.4)", color: N.orange, fontSize: 9, fontWeight: 600, padding: "2px 10px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
                 Copy for Ren{"\u00E9"}
               </button>
             </div>
           )}
           {ai.data.deliverable && (
-            <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid " + N.border, borderRadius: 5, padding: "8px 10px" }}>
+            <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid " + N.border, borderRadius: 9, padding: "8px 10px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3, gap: 6 }}>
                 <div onClick={function () { setOpenFix(!openFix); }} style={{ fontSize: 10, fontWeight: 700, color: N.textS, cursor: "pointer", userSelect: "none" }}>
                   <span style={{ display: "inline-block", width: 14 }}>{openFix ? "\u2212" : "+"}</span>Concrete fix
                 </div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  <label style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 9, padding: "2px 8px", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>
+                  <label style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 9, padding: "2px 8px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>
                     {chartBusy ? "Building\u2026" : "Chart from screenshot"}
                     <input type="file" accept="image/*" style={{ display: "none" }}
                       onChange={function (e) { if (e.target.files && e.target.files[0]) { chartFromScreenshot(e.target.files[0]); e.target.value = ""; } }} />
                   </label>
                   <button disabled={packBusy || !effUrl} onClick={makeImagePack} title={effUrl ? "" : "Paste the product URL below first"}
-                    style={{ background: "transparent", border: "1px solid " + N.border, color: effUrl ? N.textS : N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 3, cursor: effUrl ? "pointer" : "not-allowed", fontFamily: "inherit" }}>
+                    style={{ background: "transparent", border: "1px solid " + N.border, color: effUrl ? N.textS : N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 10, cursor: effUrl ? "pointer" : "not-allowed", fontFamily: "inherit" }}>
                     {packBusy ? "Building\u2026" : "Image edit pack (zip)"}
                   </button>
                   <button onClick={function () { try { navigator.clipboard.writeText(ai.data.deliverable); } catch (e) { /* no-op */ } }}
-                    style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>Copy</button>
+                    style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>Copy</button>
                 </div>
               </div>
               <input value={manualUrl || props.productUrl || ""} placeholder="Product page URL (auto-filled when found \u2014 paste manually if empty)"
                 onChange={function (e) { setManualUrl(e.target.value); }}
-                style={{ width: "100%", background: N.bg, border: "1px solid " + N.border, borderRadius: 4, color: N.textS, fontSize: 9.5, fontFamily: "inherit", padding: "4px 8px", outline: "none", marginBottom: 6 }} />
+                style={{ width: "100%", background: N.bg, border: "1px solid " + N.border, borderRadius: 12, color: N.textS, fontSize: 9.5, fontFamily: "inherit", padding: "4px 8px", outline: "none", marginBottom: 6 }} />
               {chartErr && <div style={{ fontSize: 9, color: N.textT, marginBottom: 4 }}>Size chart: {chartErr}</div>}
               {packErr && <div style={{ fontSize: 9, color: N.textT, marginBottom: 4 }}>Image pack: {packErr}</div>}
               {openFix && <div style={{ fontSize: 11, color: N.text, lineHeight: 1.55, whiteSpace: "pre-wrap", fontVariantNumeric: "tabular-nums" }}>{ai.data.deliverable}</div>}
@@ -1088,20 +1202,20 @@ function FocusPanel(props) {
       .catch(function (e) { setBusy(false); setErr(String(e.message || e)); });
   }
 
-  var inputStyle = { background: N.bg, border: "1px solid " + N.border, borderRadius: 4, color: N.text, fontSize: 11, fontFamily: "inherit", padding: "6px 8px", outline: "none", width: "100%" };
+  var inputStyle = { background: N.bg, border: "1px solid " + N.border, borderRadius: 12, color: N.text, fontSize: 11, fontFamily: "inherit", padding: "6px 8px", outline: "none", width: "100%" };
   var btnStyle = function (color, bg, border) {
-    return { background: bg, border: "1px solid " + border, color: color, fontSize: 10, fontWeight: 600, padding: "5px 12px", borderRadius: 4, cursor: "pointer", fontFamily: "inherit" };
+    return { background: bg, border: "1px solid " + border, color: color, fontSize: 10, fontWeight: 600, padding: "5px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit" };
   };
 
   return (
-    <div style={{ background: N.bg, border: "1px solid " + N.border, borderRadius: 8, padding: 16, display: "flex", flexDirection: "column", gap: 14, position: "relative", zIndex: 40 }}>
+    <div style={{ background: "radial-gradient(700px 300px at 0% 0%, rgba(56,140,255,0.10), transparent 60%), linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0) 30%), " + N.bgC, border: "1px solid " + N.borderS, borderRadius: 22, padding: 18, display: "flex", flexDirection: "column", gap: 14, position: "relative", zIndex: 40, boxShadow: "0 30px 80px rgba(0,0,0,0.65), 0 0 0 1px rgba(56,140,255,0.10)" }}>
 
       <div style={{ fontSize: 14, fontWeight: 700, color: N.text, display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
         <span style={{ flex: 1 }}>{row.product}</span>
         {qc && qc.notionUrl && <a href={qc.notionUrl} target="_blank" rel="noreferrer" style={{ fontSize: 10, fontWeight: 500, color: N.textS, textDecoration: "none" }}>Notion {"\u2197"}</a>}
         {ads && ads.fuzzy && <span style={{ fontSize: 9, color: N.orange }}>(ad-DB match unverified{ads.matchedTitle ? ": \u201C" + ads.matchedTitle + "\u201D" : ""} {"\u2014"} links below may be another product)</span>}
         {props.onClose && (
-          <button onClick={props.onClose} style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 4, cursor: "pointer", fontFamily: "inherit" }}>Exit (Esc)</button>
+          <button onClick={props.onClose} style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit" }}>Exit (Esc)</button>
         )}
       </div>
       {qcErr && <div style={{ fontSize: 9, color: N.textT, marginTop: -8 }}>Notion QC: {qcErr}</div>}
@@ -1109,7 +1223,7 @@ function FocusPanel(props) {
       {preview && createPortal(
         <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.9)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", animation: "lbFade 0.15s ease" }}>
           <style>{"@keyframes lbFade{from{opacity:0}to{opacity:1}}@keyframes lbPop{from{opacity:0;transform:scale(0.88)}to{opacity:1;transform:scale(1)}}"}</style>
-          <img src={preview} alt="preview" style={{ maxWidth: "92vw", maxHeight: "92vh", width: "auto", height: "auto", objectFit: "contain", borderRadius: 8, boxShadow: "0 16px 64px rgba(0,0,0,0.9)", animation: "lbPop 0.18s cubic-bezier(0.2, 0.8, 0.3, 1)" }} />
+          <img src={preview} alt="preview" style={{ maxWidth: "92vw", maxHeight: "92vh", width: "auto", height: "auto", objectFit: "contain", borderRadius: 12, boxShadow: "0 16px 64px rgba(0,0,0,0.9)", animation: "lbPop 0.18s cubic-bezier(0.2, 0.8, 0.3, 1)" }} />
         </div>,
         document.body
       )}
@@ -1117,7 +1231,7 @@ function FocusPanel(props) {
       <div style={{ display: "grid", gridTemplateColumns: (imgSrc || (qc && qc.qcImages && qc.qcImages.length > 0)) ? "175px 1fr 1fr" : "1fr 1fr", gap: 16, alignItems: "start" }}>
         {(imgSrc || (qc && qc.qcImages && qc.qcImages.length > 0)) && (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {imgSrc && <img src={imgSrc} alt={row.product} onMouseEnter={function () { setPreview(imgSrc); }} onMouseLeave={function () { setPreview(null); }} style={{ width: 170, height: 170, objectFit: "cover", borderRadius: 6, border: "1px solid " + N.border, background: N.bg, cursor: "zoom-in" }} />}
+            {imgSrc && <img src={imgSrc} alt={row.product} onMouseEnter={function () { setPreview(imgSrc); }} onMouseLeave={function () { setPreview(null); }} style={{ width: 170, height: 170, objectFit: "cover", borderRadius: 10, border: "1px solid " + N.border, background: N.bg, cursor: "zoom-in" }} />}
             {prod && prod.url && (
               <a href={prod.url} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: N.textS, textDecoration: "none", textAlign: "center" }}>View on site {"\u2197"}</a>
             )}
@@ -1128,7 +1242,7 @@ function FocusPanel(props) {
                   {qc.qcImages.slice(0, 4).map(function (u, i) {
                     return (
                       <a key={i} href={u} target="_blank" rel="noreferrer">
-                        <img src={u} alt={"QC " + (i + 1)} onMouseEnter={function () { setPreview(u); }} onMouseLeave={function () { setPreview(null); }} style={{ width: 82, height: 82, objectFit: "cover", borderRadius: 4, border: "1px solid " + N.border, background: N.bg, display: "block", cursor: "zoom-in" }} />
+                        <img src={u} alt={"QC " + (i + 1)} onMouseEnter={function () { setPreview(u); }} onMouseLeave={function () { setPreview(null); }} style={{ width: 82, height: 82, objectFit: "cover", borderRadius: 12, border: "1px solid " + N.border, background: N.bg, display: "block", cursor: "zoom-in" }} />
                       </a>
                     );
                   })}
@@ -1158,7 +1272,7 @@ function FocusPanel(props) {
                         return (
                           <a key={i} href={u} target="_blank" rel="noreferrer">
                             <img src={u} alt={"variant " + (i + 1)} onMouseEnter={function () { setPreview(u); }} onMouseLeave={function () { setPreview(null); }}
-                              style={{ width: 82, height: 82, objectFit: "cover", borderRadius: 4, border: "1px solid " + N.border, background: N.bg, display: "block", cursor: "zoom-in" }} />
+                              style={{ width: 82, height: 82, objectFit: "cover", borderRadius: 12, border: "1px solid " + N.border, background: N.bg, display: "block", cursor: "zoom-in" }} />
                           </a>
                         );
                       })}
@@ -1173,13 +1287,13 @@ function FocusPanel(props) {
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             {row.scaleRisk && (
               <span title={"Orders just ramped (" + row.scaleRisk.recent2 + " last 2 wks vs " + row.scaleRisk.prev2 + " before). " + row.scaleRisk.recentComplaints + " complaints (" + row.scaleRisk.recentSerious + " serious) in the last 2 wks. With ~2-week shipping, the full complaint wave lands ~2 weeks after scaling."}
-                style={{ fontSize: 9, fontWeight: 700, color: N.red, background: "rgba(255,115,105,0.15)", border: "1px solid rgba(255,115,105,0.4)", padding: "2px 8px", borderRadius: 3, letterSpacing: "0.02em" }}>
+                style={{ fontSize: 9, fontWeight: 700, color: N.red, background: "rgba(255,107,107,0.15)", border: "1px solid rgba(255,107,107,0.4)", padding: "2px 8px", borderRadius: 10, letterSpacing: "0.02em" }}>
                 SCALE RISK {"\u00B7"} just scaled ({row.scaleRisk.prev2} {"\u2192"} {row.scaleRisk.recent2} orders), early feedback negative
               </span>
             )}
             {row.firstScaleWeek != null && row.freshlyScaled && (
               <span title={"First week with real ad volume"}
-                style={{ fontSize: 9, fontWeight: 600, color: N.textS, background: "rgba(255,255,255,0.06)", border: "1px solid " + N.border, padding: "2px 8px", borderRadius: 3 }}>
+                style={{ fontSize: 9, fontWeight: 600, color: N.textS, background: "rgba(255,255,255,0.06)", border: "1px solid " + N.border, padding: "2px 8px", borderRadius: 10 }}>
                 First scaled W{row.firstScaleWeek}
               </span>
             )}
@@ -1199,7 +1313,7 @@ function FocusPanel(props) {
               { label: "Refund rate", value: contrib && contrib.refundRate != null ? fmtPct(contrib.refundRate) : "\u2014", color: contrib && contrib.refundRate != null && contrib.refundRate >= 10 ? N.red : N.text },
             ].map(function (s) {
               return (
-                <div key={s.label} style={{ background: N.bg, border: "1px solid " + N.border, borderRadius: 5, padding: "7px 9px", textAlign: "center" }}>
+                <div key={s.label} style={{ background: N.bg, border: "1px solid " + N.border, borderRadius: 9, padding: "7px 9px", textAlign: "center" }}>
                   <div style={{ fontSize: 8.5, color: N.textT, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.label}</div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: s.color || N.text, fontVariantNumeric: "tabular-nums" }}>{s.value}</div>
                 </div>
@@ -1214,7 +1328,7 @@ function FocusPanel(props) {
             {props.aiData && props.aiData.sinceEdit && (
               <div style={{ marginTop: 6 }}>
                 <button onClick={function () { setShowSince(!showSince); }}
-                  style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 10, fontWeight: 700, padding: "2px 10px", borderRadius: 4, cursor: "pointer", fontFamily: "inherit" }}>
+                  style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 10, fontWeight: 700, padding: "2px 10px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit" }}>
                   {showSince ? "\u2212" : "+"} since last edit (W{props.aiData.sinceEdit.week})
                 </button>
                 {showSince && (
@@ -1263,7 +1377,7 @@ function FocusPanel(props) {
           <div style={{ display: "flex", gap: 8 }}>
             {writeEnabled ? (
               <>
-                <button onClick={function () { setShowForm(!showForm); setShowStopForm(false); }} style={btnStyle(N.blue, "rgba(82,156,202,0.12)", "rgba(82,156,202,0.35)")}>+ Log action</button>
+                <button onClick={function () { setShowForm(!showForm); setShowStopForm(false); }} style={btnStyle(N.blue, "rgba(56,140,255,0.12)", "rgba(56,140,255,0.35)")}>+ Log action</button>
                 {!props.stoppedInfo && (
                   <button onClick={function () { setShowStopForm(!showStopForm); setShowForm(false); }} style={btnStyle(N.textS, "transparent", N.border)}>Stop advertising</button>
                 )}
@@ -1279,7 +1393,7 @@ function FocusPanel(props) {
         {err && <div style={{ fontSize: 10, color: N.red, marginBottom: 6 }}>{err}</div>}
         {savedMsg && <div style={{ fontSize: 11, color: N.green, fontWeight: 600, marginBottom: 6 }}>Saved {"\u2713"} {"\u2014"} logged to the sheet, status set to Edited. Closing{"\u2026"}</div>}
         {showForm && (
-          <div style={{ background: N.bg, border: "1px solid " + N.border, borderRadius: 6, padding: 12, marginBottom: 10, display: "grid", gridTemplateColumns: "160px 1fr 1fr", gap: 8, alignItems: "end" }}>
+          <div style={{ background: N.bg, border: "1px solid " + N.border, borderRadius: 10, padding: 12, marginBottom: 10, display: "grid", gridTemplateColumns: "160px 1fr 1fr", gap: 8, alignItems: "end" }}>
             <div>
               <div style={{ fontSize: 9, color: N.textT, marginBottom: 4 }}>Category</div>
               <select value={form.category} onChange={function (e) { setForm(Object.assign({}, form, { category: e.target.value })); }} style={inputStyle}>
@@ -1299,13 +1413,13 @@ function FocusPanel(props) {
               <input value={form.notes} onChange={function (e) { setForm(Object.assign({}, form, { notes: e.target.value })); }} style={inputStyle} />
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              <button disabled={busy} onClick={submitAction} style={btnStyle("#fff", N.blue, N.blue)}>{busy ? "Saving\u2026" : (editingAction ? "Update log entry" : "Save to sheet")}</button>
+              <button disabled={busy} onClick={submitAction} style={btnStyle(N.quiet.text, N.quiet.bg, N.quiet.border)}>{busy ? "Saving\u2026" : (editingAction ? "Update log entry" : "Save to sheet")}</button>
               <button disabled={busy} onClick={function () { setShowForm(false); }} style={btnStyle(N.textS, "transparent", N.border)}>Cancel</button>
             </div>
           </div>
         )}
         {showStopForm && (
-          <div style={{ background: N.bg, border: "1px solid rgba(255,115,105,0.25)", borderRadius: 6, padding: 12, marginBottom: 10, display: "flex", gap: 8, alignItems: "end" }}>
+          <div style={{ background: N.bg, border: "1px solid rgba(255,107,107,0.25)", borderRadius: 10, padding: 12, marginBottom: 10, display: "flex", gap: 8, alignItems: "end" }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 9, color: N.textT, marginBottom: 4 }}>Reason / note</div>
               <input value={stopNote} placeholder="e.g. Quality complaints 12% - killing" onChange={function (e) { setStopNote(e.target.value); }} style={inputStyle} />
@@ -1321,19 +1435,19 @@ function FocusPanel(props) {
       <div style={{ borderTop: "1px solid " + N.border, paddingTop: 10 }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <button onClick={function () { setShowAll(!showAll); }}
-            style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 10, fontWeight: 600, padding: "4px 12px", borderRadius: 4, cursor: "pointer", fontFamily: "inherit" }}>
+            style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 10, fontWeight: 600, padding: "4px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit" }}>
             {showAll ? "Hide" : "Show"} all complaints ({(props.allRows || []).length}) {showAll ? "\u25B4" : "\u25BE"}
           </button>
           {showAll && (
             <select value={catFilter} onChange={function (e) { setCatFilter(e.target.value); }}
-              style={{ background: N.bg, border: "1px solid " + N.border, borderRadius: 4, color: N.textS, fontSize: 10, fontFamily: "inherit", padding: "4px 8px", outline: "none" }}>
+              style={{ background: N.bg, border: "1px solid " + N.border, borderRadius: 12, color: N.textS, fontSize: 10, fontFamily: "inherit", padding: "4px 8px", outline: "none" }}>
               <option value="all">All categories</option>
               {CATEGORIES.map(function (c) { return <option key={c.key} value={c.key}>{c.label}</option>; })}
             </select>
           )}
         </div>
         {showAll && (
-          <div style={{ marginTop: 8, maxHeight: 260, overflowY: "auto", border: "1px solid " + N.border, borderRadius: 6 }}>
+          <div style={{ marginTop: 8, maxHeight: 260, overflowY: "auto", border: "1px solid " + N.border, borderRadius: 10 }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10.5 }}>
               <thead>
                 <tr>
@@ -1445,9 +1559,9 @@ function FloatingWidgets(props) {
     });
   }
 
-  var panelBase = { position: "fixed", right: 14, bottom: 60, width: 400, maxWidth: "90vw", maxHeight: "72vh", background: N.bgC, border: "1px solid " + N.border, borderRadius: 8, display: "flex", flexDirection: "column", boxShadow: "0 8px 32px rgba(0,0,0,0.55)", zIndex: 50 };
+  var panelBase = { position: "fixed", right: 14, bottom: 60, width: 400, maxWidth: "90vw", maxHeight: "72vh", background: "linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0) 30%), " + N.bgC, border: "1px solid " + N.borderS, borderRadius: 20, display: "flex", flexDirection: "column", boxShadow: "0 24px 60px rgba(0,0,0,0.65)", zIndex: 50 };
   var fabStyle = function (active) {
-    return { background: active ? "rgba(255,255,255,0.12)" : N.bgC, border: "1px solid " + N.border, color: N.textS, fontSize: 11, fontWeight: 600, padding: "7px 14px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" };
+    return { background: active ? "rgba(255,255,255,0.12)" : N.bgC, border: "1px solid " + N.border, color: N.textS, fontSize: 11, fontWeight: 600, padding: "7px 14px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" };
   };
 
   return (
@@ -1467,7 +1581,7 @@ function FloatingWidgets(props) {
             <div style={{ fontSize: 11, fontWeight: 700, color: N.text }}>
               AI chat {props.chatContext && props.chatContext.product ? "\u00B7 " + props.chatContext.product : "\u00B7 " + (props.storeName || "")}
             </div>
-            <button onClick={function () { setMsgs([]); }} style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>Clear</button>
+            <button onClick={function () { setMsgs([]); }} style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>Clear</button>
           </div>
           <div style={{ flex: 1, overflowY: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 8, minHeight: 180 }}>
             {msgs.length === 0 && (
@@ -1479,7 +1593,7 @@ function FloatingWidgets(props) {
             )}
             {msgs.map(function (m, i) {
               return (
-                <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "88%", background: m.role === "user" ? "rgba(82,156,202,0.15)" : N.bg, border: "1px solid " + N.border, borderRadius: 6, padding: "5px 7px", fontSize: 11, color: N.text, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
+                <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "88%", background: m.role === "user" ? "rgba(56,140,255,0.15)" : N.bg, border: "1px solid " + N.border, borderRadius: 10, padding: "5px 7px", fontSize: 11, color: N.text, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
                   {m.content}
                 </div>
               );
@@ -1490,8 +1604,8 @@ function FloatingWidgets(props) {
             <textarea value={input} rows={2} placeholder="Type here (Enter to send, Shift+Enter for a new line)"
               onChange={function (e) { setInput(e.target.value); }}
               onKeyDown={function (e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-              style={{ flex: 1, background: N.bg, border: "1px solid " + N.border, borderRadius: 5, color: N.text, fontSize: 11, fontFamily: "inherit", padding: "7px 9px", outline: "none", resize: "none" }} />
-            <button onClick={send} disabled={busy} style={{ background: "rgba(255,255,255,0.1)", border: "1px solid " + N.border, color: N.text, fontSize: 11, fontWeight: 600, padding: "0 14px", borderRadius: 5, cursor: "pointer", fontFamily: "inherit" }}>Send</button>
+              style={{ flex: 1, background: N.bg, border: "1px solid " + N.border, borderRadius: 9, color: N.text, fontSize: 11, fontFamily: "inherit", padding: "7px 9px", outline: "none", resize: "none" }} />
+            <button onClick={send} disabled={busy} style={{ background: "rgba(255,255,255,0.1)", border: "1px solid " + N.border, color: N.text, fontSize: 11, fontWeight: 600, padding: "0 14px", borderRadius: 9, cursor: "pointer", fontFamily: "inherit" }}>Send</button>
           </div>
         </div>
       )}
@@ -1508,7 +1622,7 @@ function FloatingWidgets(props) {
                 <span style={{ fontSize: 9, fontWeight: 700, color: N.textT }}>Active rules ({rules.length})</span>
                 <button onClick={function () { try { navigator.clipboard.writeText(rules.map(function (r) { return "- " + r; }).join("\n")); } catch (e) { /* no-op */ } }}
                   title="Copy all rules \u2014 paste them into api/ai.js in GitHub to make them permanent defaults"
-                  style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 8.5, padding: "1px 7px", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>Copy all (for GitHub)</button>
+                  style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 8.5, padding: "1px 7px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>Copy all (for GitHub)</button>
               </div>
               {rules.map(function (r, i) {
                 return (
@@ -1529,21 +1643,21 @@ function FloatingWidgets(props) {
             )}
             {fbMsgs.map(function (m, i) {
               return (
-                <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "88%", background: m.role === "user" ? "rgba(82,156,202,0.15)" : N.bg, border: "1px solid " + N.border, borderRadius: 6, padding: "7px 10px", fontSize: 11, color: N.text, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
+                <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "88%", background: m.role === "user" ? "rgba(56,140,255,0.15)" : N.bg, border: "1px solid " + N.border, borderRadius: 10, padding: "7px 10px", fontSize: 11, color: N.text, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
                   {m.content}
                 </div>
               );
             })}
             {fbBusy && <div style={{ fontSize: 10, color: N.textT }}>Thinking{"\u2026"}</div>}
             {proposedRule && (
-              <div style={{ background: "rgba(52,211,153,0.08)", border: "1px solid rgba(52,211,153,0.35)", borderRadius: 6, padding: "8px 10px" }}>
+              <div style={{ background: "rgba(52,211,153,0.08)", border: "1px solid rgba(52,211,153,0.35)", borderRadius: 10, padding: "8px 10px" }}>
                 <div style={{ fontSize: 9, fontWeight: 700, color: N.green, marginBottom: 3 }}>Proposed rule</div>
                 <div style={{ fontSize: 11, color: N.text, lineHeight: 1.5, marginBottom: 6 }}>{proposedRule}</div>
                 <div style={{ display: "flex", gap: 6 }}>
                   <button onClick={function () { addRule(proposedRule); }}
-                    style={{ background: "rgba(52,211,153,0.16)", border: "1px solid rgba(52,211,153,0.45)", color: N.green, fontSize: 10, fontWeight: 700, padding: "3px 12px", borderRadius: 4, cursor: "pointer", fontFamily: "inherit" }}>Add rule</button>
+                    style={{ background: "rgba(52,211,153,0.16)", border: "1px solid rgba(52,211,153,0.45)", color: N.green, fontSize: 10, fontWeight: 700, padding: "3px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit" }}>Add rule</button>
                   <button onClick={function () { setProposedRule(null); }}
-                    style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 10, padding: "3px 12px", borderRadius: 4, cursor: "pointer", fontFamily: "inherit" }}>Dismiss</button>
+                    style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 10, padding: "3px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit" }}>Dismiss</button>
                 </div>
               </div>
             )}
@@ -1552,8 +1666,8 @@ function FloatingWidgets(props) {
             <textarea value={fbInput} rows={2} placeholder="Your pushback on an analysis (Enter to send)"
               onChange={function (e) { setFbInput(e.target.value); }}
               onKeyDown={function (e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendFeedback(); } }}
-              style={{ flex: 1, background: N.bg, border: "1px solid " + N.border, borderRadius: 5, color: N.text, fontSize: 11, fontFamily: "inherit", padding: "7px 9px", outline: "none", resize: "none" }} />
-            <button onClick={sendFeedback} disabled={fbBusy} style={{ background: "rgba(255,255,255,0.1)", border: "1px solid " + N.border, color: N.text, fontSize: 11, fontWeight: 600, padding: "0 14px", borderRadius: 5, cursor: "pointer", fontFamily: "inherit" }}>Send</button>
+              style={{ flex: 1, background: N.bg, border: "1px solid " + N.border, borderRadius: 9, color: N.text, fontSize: 11, fontFamily: "inherit", padding: "7px 9px", outline: "none", resize: "none" }} />
+            <button onClick={sendFeedback} disabled={fbBusy} style={{ background: "rgba(255,255,255,0.1)", border: "1px solid " + N.border, color: N.text, fontSize: 11, fontWeight: 600, padding: "0 14px", borderRadius: 9, cursor: "pointer", fontFamily: "inherit" }}>Send</button>
           </div>
         </div>
       )}
@@ -1567,12 +1681,12 @@ function FloatingWidgets(props) {
                 <button onClick={function () {
                   var line = "\u2022 " + props.chatContext.product + " (" + (props.storeName || "") + "): ";
                   saveNotes(notes ? notes.replace(/\s*$/, "") + "\n" + line : line);
-                }} style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>+ product line</button>
+                }} style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>+ product line</button>
               )}
               <button onClick={function () { try { navigator.clipboard.writeText(notes); } catch (e) { /* no-op */ } }}
-                style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>Copy</button>
+                style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>Copy</button>
               <button onClick={function () { if (window.confirm("Clear all notes? This cannot be undone.")) saveNotes(""); }}
-                style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>Clear</button>
+                style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>Clear</button>
             </div>
           </div>
           <textarea value={notes} placeholder={"Notes for the weekly report to Ren\u00E9 \u2014 autosaved, survives store switches and refreshes.\n\n\u2022 Marivela bikini: sourcing different factory, waiting on WIIO\n\u2022 ..."}
@@ -2374,10 +2488,13 @@ export default function ComplaintDashboard() {
 
   if (loading) {
     return (
-      <div style={{ minHeight: "100vh", background: N.bg, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16, fontFamily: FONT }}>
-        <div style={{ width: 40, height: 40, border: "2px solid " + N.border, borderTopColor: N.blue, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-        <style>{"@keyframes spin{to{transform:rotate(360deg)}}"}</style>
-        <div style={{ color: N.textT, fontSize: 11, fontWeight: 500, letterSpacing: "0.03em" }}>Loading data...</div>
+      <div style={{ minHeight: "100vh", background: "radial-gradient(900px 500px at 50% -10%, rgba(120,150,190,0.05), transparent 70%), " + N.bg, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 18, fontFamily: FONT }}>
+        <GlobalStyles />
+        <div style={{ position: "relative", width: 48, height: 48 }}>
+          <div style={{ position: "absolute", inset: 0, border: "2px solid " + N.border, borderTopColor: N.blue, borderRightColor: N.cyan, borderRadius: "50%", animation: "spin 0.9s cubic-bezier(.5,.1,.5,.9) infinite" }} />
+          <div style={{ position: "absolute", inset: 12, borderRadius: "50%", background: N.grad, opacity: 0.5, filter: "blur(6px)" }} />
+        </div>
+        <div style={{ color: N.textS, fontSize: 12, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase" }}>Loading complaint data</div>
         {loadErr && <div style={{ color: N.red, fontSize: 11, maxWidth: 480, textAlign: "center", lineHeight: 1.5 }}>Load error: {loadErr}<br />Open the browser console (Cmd+Option+J) for details, or check that the complaint tabs still have their normal columns.</div>}
       </div>
     );
@@ -2498,129 +2615,223 @@ export default function ComplaintDashboard() {
     ? { filter: "blur(2.5px) brightness(0.45)", opacity: 0.55, pointerEvents: "none", userSelect: "none", transition: "filter 0.2s, opacity 0.2s" }
     : { transition: "filter 0.2s, opacity 0.2s" };
 
+  var reviewedCount = Object.keys(checkedState.products).filter(function (p) { return heatmapData.some(function (r) { return r.key === p; }); }).length;
+  var reviewPct = heatmapData.length > 0 ? reviewedCount / heatmapData.length : 0;
+
+  var NAV = [
+    { key: "active", label: "Active", icon: "bolt" },
+    { key: "new arrival", label: "New", icon: "sparkle" },
+    { key: "edited", label: "Edited", icon: "check" },
+    { key: "inactive", label: "Idle", icon: "pause" },
+    { key: "stopped", label: "Stopped", icon: "alert" },
+    { key: "all", label: "All", icon: "grid" },
+  ];
+
   return (
-    <div style={{ minHeight: "100vh", background: N.bg, color: N.text, fontFamily: FONT, padding: "14px 18px", display: "flex", flexDirection: "column", gap: 10, zoom: UI_ZOOM }}>
+    <div style={{ minHeight: "100vh", background: "radial-gradient(1400px 620px at 20% -10%, rgba(120,150,190,0.045), transparent 65%), " + N.bg, color: N.text, fontFamily: FONT, display: "flex", alignItems: "flex-start", zoom: UI_ZOOM }}>
+      <GlobalStyles />
+
+      {/* ── LEFT RAIL ── */}
+      <aside style={Object.assign({
+        width: 78, flexShrink: 0, position: "sticky", top: 0,
+        height: "calc(100vh / " + UI_ZOOM + ")", overflowY: "auto", overflowX: "hidden",
+        background: N.bgS,
+        borderRight: "1px solid " + N.border, display: "flex", flexDirection: "column", alignItems: "center",
+        padding: "14px 0 16px", gap: 6, zIndex: 5,
+      }, dimUI)}>
+        <div style={{ width: 38, height: 38, borderRadius: 11, background: "rgba(255,255,255,0.05)", border: "1px solid " + N.border, display: "flex", alignItems: "center", justifyContent: "center", color: N.text, marginBottom: 12, flexShrink: 0 }}>
+          <Logo size={21} />
+        </div>
+
+        {NAV.map(function (n) {
+          var active = statusFilter === n.key;
+          return (
+            <button key={n.key} className="navItem" onClick={function () { setStatusFilter(n.key); }} title={n.label + " products"}
+              style={{
+                width: 58, padding: "9px 0 7px", borderRadius: 14, cursor: "pointer", fontFamily: "inherit",
+                display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
+                background: active ? N.quiet.bg : "transparent",
+                border: "1px solid " + (active ? N.quiet.border : "transparent"),
+                color: active ? N.quiet.text : N.textT,
+              }}>
+              <Ico name={n.icon} size={17} weight={active ? 2 : 1.6} />
+              <span style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>{n.label}</span>
+            </button>
+          );
+        })}
+
+        <div style={{ flex: 1 }} />
+
+        {/* Review progress ring — the weekly job, always in view */}
+        <div style={{ position: "relative", width: 48, height: 48 }} title={reviewedCount + " of " + heatmapData.length + " reviewed this week"}>
+          <svg width="48" height="48" viewBox="0 0 48 48">
+            <circle cx="24" cy="24" r="20" fill="none" stroke="rgba(210,218,230,0.10)" strokeWidth="4" />
+            <circle cx="24" cy="24" r="20" fill="none" stroke="url(#railGrad)" strokeWidth="4" strokeLinecap="round"
+              strokeDasharray={(2 * Math.PI * 20).toFixed(1)}
+              strokeDashoffset={(2 * Math.PI * 20 * (1 - reviewPct)).toFixed(1)}
+              transform="rotate(-90 24 24)" style={{ transition: "stroke-dashoffset .4s ease" }} />
+            <defs>
+              <linearGradient id="railGrad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor={N.blue} /><stop offset="100%" stopColor={N.cyan} />
+              </linearGradient>
+            </defs>
+          </svg>
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: N.text, fontVariantNumeric: "tabular-nums" }}>
+            {Math.round(reviewPct * 100)}%
+          </div>
+        </div>
+        <div style={{ fontSize: 8, color: N.textT, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginTop: 2 }}>Reviewed</div>
+      </aside>
+
+      {/* ── MAIN COLUMN ── */}
+      <main style={{ flex: 1, minWidth: 0, padding: "16px 20px 18px", display: "flex", flexDirection: "column", gap: 12 }}>
 
       {/* Header */}
-      <div style={Object.assign({ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }, dimUI)}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <Logo />
-            <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Complaint Tracker</h1>
+      <div style={Object.assign({ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }, dimUI)}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+          <div>
+            <h1 style={{ fontSize: 21, fontWeight: 800, margin: 0, letterSpacing: "-0.02em" }}>Complaint Tracker</h1>
+            <div style={{ fontSize: 10, color: N.textT, marginTop: 2, letterSpacing: "0.02em" }}>
+              {title} {"\u00B7"} W{weekRange[0]}{"\u2013"}W{weekRange[1]}
+            </div>
           </div>
-          {/* Store picker — big segmented control, impossible to miss */}
-          <div style={{ display: "flex", gap: 4, background: N.bgC, borderRadius: 6, padding: 4, border: "1px solid " + N.border }}>
+          {/* Store picker */}
+          <div style={{ display: "flex", gap: 4, background: "rgba(255,255,255,0.03)", borderRadius: 99, padding: 4, border: "1px solid " + N.border }}>
             {STORE_CSVS.map(function (s, i) {
               var active = selectedStore === i;
               return (
                 <button key={i} onClick={function () { setSelectedStore(i); }}
                   style={{
-                    background: active ? N.blue : "transparent",
-                    color: active ? "#fff" : N.textS,
-                    border: "none", borderRadius: 4,
-                    fontSize: 13, fontWeight: 700, fontFamily: "inherit",
-                    padding: "8px 18px", cursor: "pointer",
-                    transition: "background 0.15s, color 0.15s",
+                    background: active ? N.quiet.bg : "transparent",
+                    color: active ? N.quiet.text : N.textT,
+                    border: "1px solid " + (active ? N.quiet.border : "transparent"), borderRadius: 99,
+                    fontSize: 11.5, fontWeight: 700, fontFamily: "inherit",
+                    padding: "6px 16px", cursor: "pointer",
                   }}>
                   {s.name}
                 </button>
               );
             })}
           </div>
-          {dataSrc === "demo" && <span style={{ fontSize: 8, color: N.orange, textTransform: "uppercase", letterSpacing: "0.05em" }}>demo data</span>}
+          {dataSrc === "demo" && <span style={{ fontSize: 8, color: N.orange, textTransform: "uppercase", letterSpacing: "0.05em", border: "1px solid rgba(251,191,36,0.35)", padding: "3px 8px", borderRadius: 99 }}>demo data</span>}
         </div>
 
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <button onClick={runAllRecommendations} disabled={runState.running}
-            style={{ background: runState.running ? "rgba(52,211,153,0.12)" : "rgba(52,211,153,0.16)", border: "1px solid rgba(52,211,153,0.45)", color: N.green, fontSize: 11, fontWeight: 700, padding: "6px 14px", borderRadius: 5, cursor: runState.running ? "default" : "pointer", fontFamily: "inherit" }}>
-            {runState.running ? "Running " + runState.done + "/" + runState.total + "\u2026" : "Run all recommendations"}
-          </button>
           {/* Week range */}
-          <div style={{ display: "flex", alignItems: "center", gap: 4, background: N.bgC, borderRadius: 4, padding: "4px 10px", border: "1px solid " + N.border }}>
-            <span style={{ fontSize: 9, color: N.textT }}>W</span>
-            <select value={weekRange[0]} onChange={function (e) { setWeekRange([Number(e.target.value), Math.max(Number(e.target.value), weekRange[1])]); }} style={{ background: "transparent", border: "none", color: N.text, fontSize: 11, fontFamily: "inherit", outline: "none" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 5, background: "rgba(255,255,255,0.03)", borderRadius: 99, padding: "7px 12px", border: "1px solid " + N.border }}>
+            <span style={{ fontSize: 9, color: N.textT, fontWeight: 700, letterSpacing: "0.05em" }}>WEEK</span>
+            <select value={weekRange[0]} onChange={function (e) { setWeekRange([Number(e.target.value), Math.max(Number(e.target.value), weekRange[1])]); }} style={{ background: "transparent", border: "none", color: N.text, fontSize: 11, fontWeight: 600, fontFamily: "inherit", outline: "none" }}>
               {availableWeeks.map(function (w) { return <option key={w} value={w}>{w}</option>; })}
             </select>
             <span style={{ color: N.textT, fontSize: 9 }}>{"\u2192"}</span>
-            <select value={weekRange[1]} onChange={function (e) { setWeekRange([Math.min(weekRange[0], Number(e.target.value)), Number(e.target.value)]); }} style={{ background: "transparent", border: "none", color: N.text, fontSize: 11, fontFamily: "inherit", outline: "none" }}>
+            <select value={weekRange[1]} onChange={function (e) { setWeekRange([Math.min(weekRange[0], Number(e.target.value)), Number(e.target.value)]); }} style={{ background: "transparent", border: "none", color: N.text, fontSize: 11, fontWeight: 600, fontFamily: "inherit", outline: "none" }}>
               {availableWeeks.map(function (w) { return <option key={w} value={w}>{w}</option>; })}
             </select>
           </div>
           {/* Min sales */}
-          <div style={{ display: "flex", alignItems: "center", gap: 6, background: N.bgC, borderRadius: 4, padding: "4px 10px", border: "1px solid " + N.border }}>
-            <span style={{ fontSize: 9, color: N.textT }}>Min sales</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,0.03)", borderRadius: 99, padding: "7px 12px", border: "1px solid " + N.border }}>
+            <span style={{ fontSize: 9, color: N.textT, fontWeight: 700, letterSpacing: "0.05em" }}>MIN SALES</span>
             <input type="number" min={0} step={10} value={minSales}
               onChange={function (e) { setMinSales(Math.max(0, Number(e.target.value) || 0)); }}
-              style={{ background: "transparent", border: "none", color: N.text, fontSize: 11, fontFamily: "inherit", outline: "none", width: 50 }} />
-            <span style={{ fontSize: 9, color: N.textT }}>orders</span>
+              style={{ background: "transparent", border: "none", color: N.text, fontSize: 11, fontWeight: 600, fontFamily: "inherit", outline: "none", width: 40 }} />
           </div>
-          {/* Status filter */}
-          <div style={{ display: "flex", alignItems: "center", gap: 4, background: N.bgC, borderRadius: 4, padding: "4px 10px", border: "1px solid " + N.border }}>
-            <span style={{ fontSize: 9, color: N.textT }}>Status</span>
-            <select value={statusFilter} onChange={function (e) { setStatusFilter(e.target.value); }} style={{ background: "transparent", border: "none", color: N.text, fontSize: 11, fontFamily: "inherit", outline: "none" }}>
-              <option value="all">All</option>
-              <option value="active">Active</option>
-              <option value="new arrival">New arrivals</option>
-              <option value="edited">Edited</option>
-              <option value="inactive">Inactive</option>
-              <option value="stopped">Stopped</option>
-            </select>
-          </div>
+          <button onClick={runAllRecommendations} disabled={runState.running}
+            style={{
+              display: "flex", alignItems: "center", gap: 7,
+              background: N.quiet.bg,
+              border: "1px solid " + N.quiet.border,
+              color: N.quiet.text, fontSize: 11, fontWeight: 700, padding: "8px 15px",
+              borderRadius: 99, cursor: runState.running ? "default" : "pointer", fontFamily: "inherit",
+              opacity: runState.running ? 0.75 : 1,
+            }}>
+            <Ico name={runState.running ? "refresh" : "sparkle"} size={14} weight={2}
+              style={runState.running ? { animation: "spin 1s linear infinite" } : null} />
+            {runState.running ? "Running " + runState.done + "/" + runState.total + "\u2026" : "Run all recommendations"}
+          </button>
         </div>
       </div>
 
       {/* KPI strip */}
-      <div style={Object.assign({ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1.5fr", gap: 8 }, dimUI)}>
+      <div style={Object.assign({ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1.6fr", gap: 10 }, dimUI)}>
         {[
-          { label: "Total Orders", value: totals.orders.toLocaleString() },
-          { label: "Total Complaints", value: totals.complaints.toLocaleString() },
-          { label: "Complaint %", value: fmtPct(totals.pct) },
-          { label: "Worst Product", value: totals.worst ? totals.worst.product : "\u2014", sub: totals.worst ? fmtPct(totals.worst.pct) : "" },
+          { label: "Total orders", value: totals.orders.toLocaleString(), icon: "cart", color: N.blue },
+          { label: "Total complaints", value: totals.complaints.toLocaleString(), icon: "alert", color: N.violet },
+          { label: "Complaint rate", value: fmtPct(totals.pct), icon: "pct", color: totals.pct >= 8 ? N.red : N.green },
+          { label: "Worst product", value: totals.worst ? totals.worst.product : "\u2014", sub: totals.worst ? fmtPct(totals.worst.pct) + " complaint rate" : "", icon: "flame", color: N.red },
         ].map(function (k) {
           return (
-            <div key={k.label} style={{ background: N.bgC, border: "1px solid " + N.border, borderRadius: 6, padding: "10px 14px" }}>
-              <div style={{ fontSize: 8, color: N.textT, textTransform: "uppercase", letterSpacing: "0.04em", fontWeight: 600, marginBottom: 4 }}>{k.label}</div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: N.text, fontVariantNumeric: "tabular-nums", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{k.value}</div>
-              {k.sub && <div style={{ fontSize: 10, color: N.textS, marginTop: 2 }}>{k.sub}</div>}
+            <div key={k.label} className="card" style={{ padding: "13px 15px", display: "flex", gap: 12, alignItems: "flex-start", position: "relative", overflow: "hidden" }}>
+              <div style={{ position: "absolute", top: 0, left: 15, right: 15, height: 1, background: "linear-gradient(90deg, transparent, " + k.color + "55, transparent)" }} />
+              <IconTile icon={k.icon} color={k.color} />
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 8.5, color: N.textT, textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 700, marginBottom: 3 }}>{k.label}</div>
+                <div style={{ fontSize: 21, fontWeight: 800, letterSpacing: "-0.02em", color: N.text, fontVariantNumeric: "tabular-nums", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{k.value}</div>
+                {k.sub && <div style={{ fontSize: 10, color: k.color, marginTop: 2, fontWeight: 600 }}>{k.sub}</div>}
+              </div>
             </div>
-
           );
         })}
       </div>
 
       {loadErr && !loading && (
-        <div style={{ background: "rgba(255,115,105,0.08)", border: "1px solid rgba(255,115,105,0.3)", borderRadius: 6, padding: "8px 14px", fontSize: 11, color: N.red }}>
+        <div style={{ background: "rgba(255,107,107,0.08)", border: "1px solid rgba(255,107,107,0.3)", borderRadius: 14, padding: "10px 16px", fontSize: 11, color: N.red }}>
           {loadErr}
         </div>
       )}
 
       {/* Amber's weekly workflow */}
-      <div style={Object.assign({ background: N.bgC, border: "1px solid " + N.border, borderRadius: 6, padding: "10px 14px", display: "flex", flexDirection: "column", gap: 4 }, dimUI)}>
-        <div style={{ fontSize: 10, fontWeight: 700, color: N.text, marginBottom: 2 }}>Weekly review {"\u2014"} every product, once a week.</div>
-        <div style={{ fontSize: 10, color: N.textS }}><span style={{ color: N.textT, fontWeight: 700 }}>1.</span> Status {"\u2192"} <span style={{ fontWeight: 700, color: N.text }}>Active</span> first: top to bottom, most complaints first. Open each product, read the AI analysis, act.</div>
-        <div style={{ fontSize: 10, color: N.textS }}><span style={{ color: N.textT, fontWeight: 700 }}>2.</span> Status {"\u2192"} <span style={{ fontWeight: 700, color: N.text }}>New arrivals</span> second: top to bottom. Fix fresh products BEFORE they scale {"\u2014"} 1-2 early complaints is already a signal. Red tags first.</div>
-        <div style={{ fontSize: 10, color: N.textS }}><span style={{ color: N.textT, fontWeight: 700 }}>3.</span> Status {"\u2192"} <span style={{ fontWeight: 700, color: N.text }}>Edited</span> last: check in on the edits you made and anything you still need to follow up on (see the Last edit column).</div>
-        <div style={{ fontSize: 10, color: N.textS }}><span style={{ color: N.textT, fontWeight: 700 }}>4.</span> Do <span style={{ fontWeight: 700, color: N.text }}>ALL stores</span> {"\u2014"} switch store top left and repeat.</div>
+      <div className="card" style={Object.assign({ padding: "13px 16px", display: "flex", flexDirection: "column", gap: 7 }, dimUI)}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ width: 3, height: 13, borderRadius: 99, background: N.grad }} />
+          <div style={{ fontSize: 11, fontWeight: 800, color: N.text, letterSpacing: "-0.01em" }}>Weekly review {"\u2014"} every product, once a week</div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 8 }}>
+          {[
+            { n: "01", t: "Active", d: "Top to bottom, most complaints first. Open each product, read the AI analysis, act." },
+            { n: "02", t: "New arrivals", d: "Fix fresh products before they scale \u2014 1\u20132 early complaints is already a signal. Red tags first." },
+            { n: "03", t: "Edited", d: "Check in on the edits you made and the follow-ups you still owe (see Last edit)." },
+            { n: "04", t: "All stores", d: "Switch store top left and repeat the whole run." },
+          ].map(function (s) {
+            return (
+              <div key={s.n} style={{ background: "rgba(255,255,255,0.025)", border: "1px solid " + N.border, borderRadius: 13, padding: "9px 11px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
+                  <span style={{ fontSize: 9, fontWeight: 800, color: N.textT, fontVariantNumeric: "tabular-nums" }}>{s.n}</span>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: N.text }}>{s.t}</span>
+                </div>
+                <div style={{ fontSize: 9.5, color: N.textS, lineHeight: 1.45 }}>{s.d}</div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Table */}
-      <div style={{ background: N.bgC, border: "1px solid " + N.border, borderRadius: 8, padding: 12, position: "relative" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+      <div className="card" style={{ padding: 14, position: "relative" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: N.textS, textTransform: "uppercase", letterSpacing: "0.04em" }}>Products</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <IconTile icon="box" color={N.cyan} />
+              <div>
+                <div style={{ fontSize: 12.5, fontWeight: 800, color: N.text, letterSpacing: "-0.01em" }}>Products</div>
+                <div style={{ fontSize: 9, color: N.textT }}>{heatmapData.length} shown {"\u00B7"} {NAV.filter(function (n) { return n.key === statusFilter; }).map(function (n) { return n.label; })[0] || "All"}</div>
+              </div>
+            </div>
             {heatmapData.length > 0 && (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 10, color: N.textS }}>
-                <span style={{ color: N.textS, fontWeight: 600 }}>
-                  {Object.keys(checkedState.products).filter(function (p) { return heatmapData.some(function (r) { return r.key === p; }); }).length}/{heatmapData.length} reviewed
+              <div style={{ display: "flex", alignItems: "center", gap: 9, background: "rgba(255,255,255,0.03)", border: "1px solid " + N.border, borderRadius: 99, padding: "5px 6px 5px 12px" }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: N.text, fontVariantNumeric: "tabular-nums" }}>
+                  {reviewedCount}/{heatmapData.length}
                 </span>
-                <span style={{ color: N.textT, fontSize: 9 }}>{"\u00B7"} resets Monday</span>
-                <button onClick={resetChecked} style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 3, cursor: "pointer", fontFamily: "inherit" }}>
+                <div style={{ width: 70, height: 5, borderRadius: 99, background: "rgba(210,218,230,0.12)", overflow: "hidden" }}>
+                  <div style={{ width: (reviewPct * 100) + "%", height: "100%", background: N.grad, borderRadius: 99, transition: "width .3s ease" }} />
+                </div>
+                <span style={{ color: N.textT, fontSize: 9 }}>resets Monday</span>
+                <button onClick={resetChecked} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid " + N.border, color: N.textS, fontSize: 9, fontWeight: 700, padding: "4px 10px", borderRadius: 99, cursor: "pointer", fontFamily: "inherit" }}>
                   Reset
                 </button>
               </div>
             )}
             {focusedProduct && (
-              <button onClick={closeFocus} style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 4, cursor: "pointer", fontFamily: "inherit" }}>
+              <button onClick={closeFocus} style={{ background: "rgba(255,107,107,0.10)", border: "1px solid rgba(255,107,107,0.32)", color: N.red, fontSize: 10, fontWeight: 700, padding: "5px 12px", borderRadius: 99, cursor: "pointer", fontFamily: "inherit" }}>
                 {"\u2715"} Exit focus
               </button>
             )}
@@ -2631,7 +2842,7 @@ export default function ComplaintDashboard() {
           <table style={{ width: "100%", tableLayout: "fixed", borderCollapse: "collapse", fontSize: 11, fontVariantNumeric: "tabular-nums" }}>
             <thead>
               <tr>
-                <th style={{ background: N.bgS, padding: "6px 4px", position: "sticky", top: 0, width: 28 }}></th>
+                <th style={{ background: N.bgS, padding: "9px 4px", position: "sticky", top: 0, width: 30, borderRadius: "10px 0 0 10px" }}></th>
                 {[
                   { label: sortableHeader("Week Started", "newest"), align: "left", w: 96 },
                   { label: "Status", align: "left", w: 86 },
@@ -2642,7 +2853,7 @@ export default function ComplaintDashboard() {
                   { label: "Product", align: "left" },
                 ].concat(statusFilter === "active" ? [] : [{ label: statusFilter === "edited" ? "Last edit" : "Last edit / issue", align: "left", w: 240 }]).map(function (h, i) {
                   return (
-                    <th key={i} style={{ background: N.bgS, color: N.textS, fontWeight: 600, fontSize: 8, textTransform: "uppercase", letterSpacing: "0.03em", padding: "6px 7px", textAlign: h.align, whiteSpace: "nowrap", position: "sticky", top: 0, width: h.w || "auto" }}>
+                    <th key={i} style={{ background: N.bgS, color: N.textT, fontWeight: 700, fontSize: 8.5, textTransform: "uppercase", letterSpacing: "0.08em", padding: "9px 8px", textAlign: h.align, whiteSpace: "nowrap", position: "sticky", top: 0, width: h.w || "auto", borderBottom: "1px solid " + N.border }}>
                       {h.label}
                     </th>
                   );
@@ -2672,7 +2883,8 @@ export default function ComplaintDashboard() {
                     onMouseEnter={function () { if (!focusedProduct) setHoveredProduct(row.key); }}
                     onMouseLeave={function () { if (!focusedProduct) setHoveredProduct(null); }}
                     style={{
-                      background: isFocused ? "rgba(82,156,202,0.08)" : (isHovered ? "rgba(255,255,255,0.03)" : "transparent"),
+                      background: isFocused ? "rgba(56,140,255,0.12)" : (isHovered ? "rgba(56,140,255,0.055)" : "transparent"),
+                      boxShadow: isFocused ? "inset 3px 0 0 " + N.blue : "none",
                       opacity: dimmed ? 0.1 : (isChecked ? 0.22 : 1),
                       filter: dimmed ? "blur(2.5px) brightness(0.45)" : "none",
                       transition: "opacity 0.2s, filter 0.2s",
@@ -2693,7 +2905,7 @@ export default function ComplaintDashboard() {
                     <td style={{ padding: "5px 7px", textAlign: "left", color: row.orders7d != null && row.orders7d < INACTIVE_SALES_7D ? N.textT : N.textS, borderBottom: "1px solid " + N.border }}>
                       {row.orders7d != null ? row.orders7d.toLocaleString() : "\u2014"}
                     </td>
-                    <td style={{ padding: "5px 7px", textAlign: "left", fontWeight: 700, fontSize: 12, borderBottom: "1px solid " + N.border, color: row.pct >= KILL_TOTAL_THRESHOLD ? N.red : N.text, background: row.pct >= KILL_TOTAL_THRESHOLD ? "rgba(255,115,105,0.12)" : "transparent" }}>
+                    <td style={{ padding: "5px 7px", textAlign: "left", fontWeight: 700, fontSize: 12, borderBottom: "1px solid " + N.border, color: row.pct >= KILL_TOTAL_THRESHOLD ? N.red : N.text, background: row.pct >= KILL_TOTAL_THRESHOLD ? "rgba(255,107,107,0.12)" : "transparent" }}>
                       {row.sampleSmall ? row.complaints + "\u00D7" : fmtPct(row.pct)}
                     </td>
                     <td style={{ padding: "5px 7px", textAlign: "left", color: N.textS, borderBottom: "1px solid " + N.border, fontVariantNumeric: "tabular-nums" }}>
@@ -2706,20 +2918,20 @@ export default function ComplaintDashboard() {
                       {row.killSignal ? (
                         <span title={(row.killSignal.tier === "auto" ? "AUTO KILL \u2014 " : "DEBATE \u2014 ") + row.killSignal.reasons.join(", ")}
                           style={row.killSignal.tier === "auto"
-                            ? { fontSize: 9, fontWeight: 700, color: N.red, background: "rgba(255,115,105,0.15)", border: "1px solid rgba(255,115,105,0.4)", padding: "2px 7px", borderRadius: 3, letterSpacing: "0.02em" }
-                            : { fontSize: 9, fontWeight: 700, color: N.textS, background: "rgba(255,255,255,0.06)", border: "1px solid " + N.border, padding: "2px 7px", borderRadius: 3, letterSpacing: "0.02em" }}>
+                            ? { fontSize: 9, fontWeight: 700, color: N.red, background: "rgba(255,107,107,0.15)", border: "1px solid rgba(255,107,107,0.4)", padding: "2px 7px", borderRadius: 10, letterSpacing: "0.02em" }
+                            : { fontSize: 9, fontWeight: 700, color: N.textS, background: "rgba(255,255,255,0.06)", border: "1px solid " + N.border, padding: "2px 7px", borderRadius: 10, letterSpacing: "0.02em" }}>
                           {row.killSignal.tier === "auto" ? "KILL" : "DEBATE"}
                         </span>
                       ) : row.scaleRisk ? (
                         <span title={"Orders just ramped (" + row.scaleRisk.recent2 + " last 2 wks vs " + row.scaleRisk.prev2 + " before) and early feedback is negative (" + row.scaleRisk.recentComplaints + " complaints, " + row.scaleRisk.recentSerious + " serious, in the last 2 wks). With ~2-week shipping, the full complaint wave lands ~2 weeks after scaling \u2014 watch closely."}
-                          style={{ fontSize: 9, fontWeight: 700, color: N.red, background: "rgba(255,115,105,0.15)", border: "1px solid rgba(255,115,105,0.4)", padding: "2px 7px", borderRadius: 3, letterSpacing: "0.02em" }}>
+                          style={{ fontSize: 9, fontWeight: 700, color: N.red, background: "rgba(255,107,107,0.15)", border: "1px solid rgba(255,107,107,0.4)", padding: "2px 7px", borderRadius: 10, letterSpacing: "0.02em" }}>
                           SCALE RISK
                         </span>
                       ) : row.earlyWarning ? (
                         <span title={row.earlyWarning.direction === "both"
                           ? row.earlyWarning.count + " sizing complaints in both directions \u2014 check size chart, not supplier"
                           : row.earlyWarning.count + " " + (row.earlyWarning.direction === "too_small" ? "Too Small" : "Too Large") + " complaints (\u2265 " + EARLY_WARNING_COUNT + " trigger)"}
-                          style={{ fontSize: 9, fontWeight: 700, color: N.textS, background: "rgba(255,255,255,0.06)", border: "1px solid " + N.border, padding: "2px 7px", borderRadius: 3, letterSpacing: "0.02em" }}>
+                          style={{ fontSize: 9, fontWeight: 700, color: N.textS, background: "rgba(255,255,255,0.06)", border: "1px solid " + N.border, padding: "2px 7px", borderRadius: 10, letterSpacing: "0.02em" }}>
                           {row.earlyWarning.count}{" "}{row.earlyWarning.label}
                         </span>
                       ) : (
@@ -2740,7 +2952,7 @@ export default function ComplaintDashboard() {
                       })()}>
                       {(function () {
                         var la = (rA || []).slice().sort(function (a, b) { return (b.week || 0) - (a.week || 0); })[0];
-                        if (la) return <span><span style={{ color: N.blue, fontWeight: 700 }}>W{la.week}</span> {la.action}{la.notes ? " \u2014 " + la.notes : ""}</span>;
+                        if (la) return <span><span style={{ color: N.textT, fontWeight: 700 }}>W{la.week}</span> {la.action}{la.notes ? " \u2014 " + la.notes : ""}</span>;
                         var iss = issueByKey[row.key];
                         if (!iss) return <span style={{ color: N.textT }}>{"\u2014"}</span>;
                         return <span>{iss}</span>;
@@ -2756,13 +2968,13 @@ export default function ComplaintDashboard() {
       </div>
 
       {/* Footer */}
-      <div style={{ padding: "4px 0", borderTop: "1px solid " + N.border, display: "flex", justifyContent: "space-between", fontSize: 9, color: N.textT, marginBottom: 0 }}>
+      <div style={{ padding: "9px 2px 0", borderTop: "1px solid " + N.border, display: "flex", justifyContent: "space-between", gap: 16, fontSize: 9, color: N.textT, marginBottom: 0 }}>
         <span>Complaint Tracker {"\u2014"} {title}</span>
         <span>{visibleProducts}/{totalProducts} products {"\u00B7"} {Object.keys(stoppedAds).length} stopped {"\u00B7"} Complaints W{weekRange[0]}{"\u2013"}W{weekRange[1]} vs Orders W{ordersWR[0]}{"\u2013"}W{ordersWR[1]} {"\u00B7"} 14d lag {"\u00B7"} Orders 14d = W{latestDataWeek - 1}{"\u2013"}W{latestDataWeek} {"\u00B7"} Min {minSales} sales {"\u00B7"} Margin data: {Object.keys(contribData).length} products{Object.keys(contribData).length === 0 ? " \u2014 check contribUrl gid (README)" : ""}</span>
       </div>
 
       {toast && createPortal(
-        <div style={{ position: "fixed", bottom: 26, left: "50%", transform: "translateX(-50%)", background: "rgba(30,30,30,0.97)", border: "1px solid rgba(52,211,153,0.4)", color: "#e8e8e8", fontSize: 16, fontWeight: 700, padding: "14px 26px", borderRadius: 10, zIndex: 10000, boxShadow: "0 8px 32px rgba(0,0,0,0.6)", animation: "toastIn 0.25s ease", fontFamily: FONT, whiteSpace: "nowrap", maxWidth: "90vw", overflow: "hidden", textOverflow: "ellipsis" }}>
+        <div style={{ position: "fixed", bottom: 26, left: "50%", transform: "translateX(-50%)", background: "linear-gradient(180deg, rgba(24,32,48,0.98), rgba(14,19,29,0.98))", border: "1px solid rgba(56,140,255,0.35)", color: "#EAF2FF", fontSize: 15, fontWeight: 700, padding: "14px 26px", borderRadius: 99, zIndex: 10000, boxShadow: "0 16px 50px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04) inset", animation: "toastIn 0.25s ease", fontFamily: FONT, whiteSpace: "nowrap", maxWidth: "90vw", overflow: "hidden", textOverflow: "ellipsis" }}>
           <style>{"@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(12px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}"}</style>
           {toast}
         </div>,
@@ -2770,7 +2982,7 @@ export default function ComplaintDashboard() {
       )}
       {focusedProduct && (
         <div onClick={closeFocus}
-          style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "#000", zIndex: 30, opacity: closing ? 0 : 1, transition: "opacity 0.3s ease" }} />
+          style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(4,6,12,0.86)", backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)", zIndex: 30, opacity: closing ? 0 : 1, transition: "opacity 0.3s ease" }} />
       )}
       {focusedProduct && shownRow && (
         <div style={{ position: "fixed", top: "50%", left: "50%", transform: closing ? "translate(-50%, -46%)" : "translate(-50%, -50%)", width: "min(1100px, 95vw)", maxHeight: "90vh", overflowY: "auto", zIndex: 40, opacity: closing ? 0 : 1, transition: "opacity 0.3s ease, transform 0.3s ease" }}>
@@ -2796,6 +3008,7 @@ export default function ComplaintDashboard() {
       )}
 
       <FloatingWidgets storeName={STORE_CSVS[selectedStore].name} chatContext={chatContext} reportData={reportData} />
+      </main>
     </div>
   );
 }
