@@ -2335,15 +2335,6 @@ export default function ComplaintDashboard() {
     });
   }, [productData, minSales, statusFilter]);
 
-  var totals = useMemo(function () {
-    var o = 0, c = 0, worst = null;
-    filteredProductData.forEach(function (p) {
-      o += p.orders; c += p.complaints;
-      if (!worst || p.pct > worst.pct) worst = p;
-    });
-    return { orders: o, complaints: c, pct: o > 0 ? (c / o) * 100 : 0, worst: worst };
-  }, [filteredProductData]);
-
   var heatmapData = useMemo(function () {
     var rows = filteredProductData.map(function (p) {
       var row = Object.assign({}, p);
@@ -3028,59 +3019,11 @@ export default function ComplaintDashboard() {
         </div>
       </div>
 
-      {/* KPI strip */}
-      <div style={Object.assign({ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1.6fr", gap: 10 }, dimUI)}>
-        {[
-          { label: "Total orders", value: totals.orders.toLocaleString(), icon: "cart", color: N.blue },
-          { label: "Total complaints", value: totals.complaints.toLocaleString(), icon: "alert", color: N.violet },
-          { label: "Complaint rate", value: fmtPct(totals.pct), icon: "pct", color: totals.pct >= 8 ? N.red : N.green },
-          { label: "Worst product", value: totals.worst ? totals.worst.product : "\u2014", sub: totals.worst ? fmtPct(totals.worst.pct) + " complaint rate" : "", icon: "flame", color: N.red },
-        ].map(function (k) {
-          return (
-            <div key={k.label} className="card" style={{ padding: "13px 15px", display: "flex", gap: 12, alignItems: "flex-start", position: "relative", overflow: "hidden" }}>
-              <div style={{ position: "absolute", top: 0, left: 15, right: 15, height: 1, background: "linear-gradient(90deg, transparent, " + k.color + "55, transparent)" }} />
-              <IconTile icon={k.icon} color={k.color} />
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontSize: 8.5, color: N.textT, textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 700, marginBottom: 3 }}>{k.label}</div>
-                <div style={{ fontSize: 21, fontWeight: 800, letterSpacing: "-0.02em", color: N.text, fontVariantNumeric: "tabular-nums", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{k.value}</div>
-                {k.sub && <div style={{ fontSize: 10, color: k.color, marginTop: 2, fontWeight: 600 }}>{k.sub}</div>}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
       {loadErr && !loading && (
         <div style={{ background: "rgba(255,107,107,0.08)", border: "1px solid rgba(255,107,107,0.3)", borderRadius: 14, padding: "10px 16px", fontSize: 11, color: N.red }}>
           {loadErr}
         </div>
       )}
-
-      {/* Amber's weekly workflow */}
-      <div className="card" style={Object.assign({ padding: "13px 16px", display: "flex", flexDirection: "column", gap: 7 }, dimUI)}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ width: 3, height: 13, borderRadius: 99, background: N.grad }} />
-          <div style={{ fontSize: 11, fontWeight: 800, color: N.text, letterSpacing: "-0.01em" }}>Weekly review {"\u2014"} every product, once a week</div>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 8 }}>
-          {[
-            { n: "01", t: "Active", d: "Top to bottom, most complaints first. Open each product, read the AI analysis, act." },
-            { n: "02", t: "New arrivals", d: "Fix fresh products before they scale \u2014 1\u20132 early complaints is already a signal. Red tags first." },
-            { n: "03", t: "Edited", d: "Check in on the edits you made and the follow-ups you still owe (see Last edit)." },
-            { n: "04", t: "All stores", d: "Switch store top left and repeat the whole run." },
-          ].map(function (s) {
-            return (
-              <div key={s.n} style={{ background: "rgba(255,255,255,0.025)", border: "1px solid " + N.border, borderRadius: 13, padding: "9px 11px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
-                  <span style={{ fontSize: 9, fontWeight: 800, color: N.textT, fontVariantNumeric: "tabular-nums" }}>{s.n}</span>
-                  <span style={{ fontSize: 10.5, fontWeight: 700, color: N.text }}>{s.t}</span>
-                </div>
-                <div style={{ fontSize: 9.5, color: N.textS, lineHeight: 1.45 }}>{s.d}</div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
 
       {/* Table */}
       <div className="card" style={{ padding: 14, position: "relative" }}>
