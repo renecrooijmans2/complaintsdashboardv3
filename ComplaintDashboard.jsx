@@ -2958,7 +2958,13 @@ export default function ComplaintDashboard() {
       <div style={Object.assign({ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }, dimUI)}>
         <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
           <div>
-            <h1 style={{ fontSize: 21, fontWeight: 800, margin: 0, letterSpacing: "-0.02em" }}>Complaint Tracker</h1>
+            <h1 style={{ fontSize: 21, fontWeight: 800, margin: 0, letterSpacing: "-0.02em", display: "flex", alignItems: "baseline", gap: 10 }}>
+              Complaint Tracker
+              <a href="https://www.loom.com/share/aed7a77befce45749d672e850c5cc081" target="_blank" rel="noreferrer"
+                style={{ fontSize: 10, fontWeight: 600, color: N.textS, textDecoration: "none", whiteSpace: "nowrap" }}>
+                Video overview {"↗"}
+              </a>
+            </h1>
             <div style={{ fontSize: 10, color: N.textT, marginTop: 2, letterSpacing: "0.02em" }}>
               {title} {"\u00B7"} W{weekRange[0]}{"\u2013"}W{weekRange[1]}
             </div>
