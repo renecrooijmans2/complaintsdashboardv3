@@ -15,6 +15,7 @@ const QC_PROP = "图片 QC ";
 const SIZE_PROP = "尺码表 Size";
 const UPDATED_SIZE_PROP = "Updated sizechart";
 const FEEDBACK_PROP = "反馈 Feedback";
+const CUSTOMER_PROP = "Customer photos";
 
 function fileUrls(prop) {
   if (!prop || !Array.isArray(prop.files)) return [];
@@ -59,6 +60,7 @@ export default async function handler(req, res) {
       found: true,
       notionUrl: page.url || null,
       qcImages: fileUrls(p[QC_PROP]).slice(0, 8),
+      customerPhotos: fileUrls(p[CUSTOMER_PROP]).slice(0, 8),
       sizeChart: fileUrls(p[SIZE_PROP])[0] || null,
       updatedSizeChart: fileUrls(p[UPDATED_SIZE_PROP])[0] || null,
       feedback: (p[FEEDBACK_PROP]?.rich_text || []).map((t) => t.plain_text).join("") || null,

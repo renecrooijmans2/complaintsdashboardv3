@@ -36,13 +36,62 @@ var UI_ZOOM = 1.5;
 // not in local `vite dev` — the UI degrades gracefully when they're missing.
 var AI_API_PATH = "/api/ai";
 var CHAT_API_PATH = "/api/chat";
-var REPORT_API_PATH = "/api/report";
 var PRODUCT_LOOKUP_PATH = "/api/product-lookup";
 var NOTION_QC_PATH = "/api/notion-qc";
 var SIZECHART_API_PATH = "/api/sizechart";
-var FEEDBACK_API_PATH = "/api/feedback";
 var NOTION_ADS_PATH = "/api/notion-ads";
 var IMAGE_PROMPTS_PATH = "/api/image-prompts";
+var CJ_FULFIL_PATH = "/api/cj-fulfilment";   // Notion "Products switched to CJ" DB → WIIO/CJ tag
+var SLACK_SEARCH_PATH = "/api/slack-search"; // Slack search.messages → "All Slack messages" tab
+var QC_PHOTO_PATH = "/api/qc-photo";         // replace/delete factory QC photos in Notion
+var NOTE_API_PATH = "/api/note";             // notepad "send to Slack" relay
+
+// Re:amaze deep links for the complaints table. A full https:// URL in the
+// "Ticket Slug" column is used as-is; a bare conversation slug gets this prefix.
+// The sheet's slugs carry a leading "=" (N8N artifact) — stripped here.
+var REAMAZE_CONVO_BASE = "https://nextup-digital.reamaze.com/admin/conversations/";
+function ticketHref(c) {
+  var t = String((c && c.ticketUrl) || "").trim().replace(/^=+/, "");
+  if (!t || t === "not-found") return "";
+  if (/^https?:\/\//i.test(t)) return t;
+  return REAMAZE_CONVO_BASE ? REAMAZE_CONVO_BASE + encodeURIComponent(t) : "";
+}
+
+// Normalized key for matching dashboard product titles against the CJ Notion DB titles.
+function fulfilKey(t) {
+  return String(t || "").toLowerCase().replace(/[™®]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+// Slack search term for a product: the brand word before the dash ("Avelyn – Henley Tunic…" → "Avelyn").
+function slackTermFor(title) {
+  var t = String(title || "").replace(/[™®]/g, "").trim();
+  var first = t.split(/\s+|–|—/)[0] || t;
+  return first.replace(/[^\w'-]/g, "") || t;
+}
+
+// Read an image file as a data-URL; large files are downscaled through a canvas so
+// the payload stays under Vercel's ~4.5 MB request-body limit.
+function imageFileToDataUrl(file, cb) {
+  var MAX_RAW = 2.5 * 1024 * 1024;
+  var reader = new FileReader();
+  reader.onerror = function () { cb(new Error("could not read the file")); };
+  reader.onload = function () {
+    var dataUrl = String(reader.result || "");
+    if (file.size <= MAX_RAW) return cb(null, dataUrl);
+    var img = new Image();
+    img.onerror = function () { cb(new Error("file is too large and not a re-compressible image")); };
+    img.onload = function () {
+      var scale = Math.min(1, 1800 / Math.max(img.width, img.height));
+      var cv = document.createElement("canvas");
+      cv.width = Math.max(1, Math.round(img.width * scale));
+      cv.height = Math.max(1, Math.round(img.height * scale));
+      cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+      cb(null, cv.toDataURL("image/jpeg", 0.85));
+    };
+    img.src = dataUrl;
+  };
+  reader.readAsDataURL(file);
+}
 var ACTIONS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTebDK0L1zu6vE8T7NGW6352-RzjHc4DHGfWH7YjADDGn0Z9J18K6GvlpmHCX6-EpjgZ8KjTD0J20Df/pub?gid=1657576006&single=true&output=csv";
 var CONFIG_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTebDK0L1zu6vE8T7NGW6352-RzjHc4DHGfWH7YjADDGn0Z9J18K6GvlpmHCX6-EpjgZ8KjTD0J20Df/pub?gid=1331895582&single=true&output=csv";
 var STOPPED_ADS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTebDK0L1zu6vE8T7NGW6352-RzjHc4DHGfWH7YjADDGn0Z9J18K6GvlpmHCX6-EpjgZ8KjTD0J20Df/pub?gid=419605787&single=true&output=csv";
@@ -144,6 +193,8 @@ function GlobalStyles() {
       .card { background: linear-gradient(180deg, rgba(255,255,255,0.028) 0%, rgba(255,255,255,0) 42%), ${N.bgC};
         border: 1px solid ${N.border}; border-radius: 18px; box-shadow: ${N.cardShadow}; }
       .rowHover:hover { background: rgba(56,140,255,0.055) !important; }
+      .qcThumbWrap .qcTools { opacity: 0; transition: opacity .15s ease; }
+      .qcThumbWrap:hover .qcTools, .qcThumbWrap:focus-within .qcTools { opacity: 1; }
       .navItem { position: relative; }
       .navItem:hover { background: rgba(255,255,255,0.05); }
       @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; } }
@@ -166,6 +217,8 @@ function Ico(props) {
     pct: "M6 18 18 6M8 8a1.5 1.5 0 1 0 .1 0M16 16a1.5 1.5 0 1 0 .1 0",
     flame: "M12 3c3 4 5 5.5 5 9a5 5 0 0 1-10 0c0-2 1-3 1.5-4.5C9 9.5 11 7 12 3z",
     refresh: "M20 11a8 8 0 1 0-1.5 5M20 5v6h-6",
+    note: "M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z",
+    close: "M6 6l12 12M18 6 6 18",
     settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.2A1.6 1.6 0 0 0 7.9 19.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 4 15H3.9a2 2 0 1 1 0-4H4a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 11 4V3.9a2 2 0 1 1 4 0V4a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.6 1.6 0 0 0 20 11h.1a2 2 0 1 1 0 4H20z",
   };
   return (
@@ -325,6 +378,8 @@ function parseComplaintsCSV(text, storeName) {
     // Optional ticket summary column (also how "Complaint Detail" is parsed)
     if (ci.summary == null && (c.indexOf("summary") !== -1 || c.indexOf("detail") !== -1 || c.indexOf("quote") !== -1 || c.indexOf("description") !== -1 || c === "notes" || c === "note")) ci.summary = i;
     if (c.indexOf("order") !== -1 && c.indexOf("placed") !== -1) ci.placed = i;
+    // Optional Re:amaze ticket column — full URL or bare conversation slug (see REAMAZE_CONVO_BASE)
+    if (ci.ticket == null && (c.indexOf("ticket") !== -1 || c.indexOf("reamaze") !== -1 || c.indexOf("conversation") !== -1 || c.indexOf("link") !== -1 || (c.indexOf("url") !== -1 && c.indexOf("image") === -1))) ci.ticket = i;
   });
   if (ci.placed == null) ci.placed = 8; // column I by position, per the sheet layout
   var out = [];
@@ -347,6 +402,7 @@ function parseComplaintsCSV(text, storeName) {
       week: weekFromDateStr(ds),
       dateStr: ds,
       summary: ci.summary != null ? (r[ci.summary] || "").trim() : "",
+      ticketUrl: ci.ticket != null ? (r[ci.ticket] || "").trim() : "",
       store: storeName,
     });
   }
@@ -716,7 +772,7 @@ var STATUS_STYLES = {
   Active:   { color: N.green,  bg: "rgba(52,211,153,0.12)",  border: "rgba(52,211,153,0.3)" },
   Edited:   { color: N.blue,   bg: "rgba(56,140,255,0.14)",  border: "rgba(56,140,255,0.35)" },
   Inactive: { color: N.grey,   bg: "rgba(255,255,255,0.05)", border: "rgba(255,255,255,0.12)" },
-  Stopped:  { color: N.red,    bg: "rgba(255,107,107,0.1)",  border: "rgba(255,107,107,0.3)" },
+  "Check in": { color: N.orange, bg: "rgba(251,191,36,0.12)", border: "rgba(251,191,36,0.35)" },
 };
 function StatusChip(props) {
   var s = STATUS_STYLES[props.status] || STATUS_STYLES.Inactive;
@@ -1086,15 +1142,81 @@ function AIPanel(props) {
   );
 }
 
+/* ── ORDER GRAPH — weekly orders for one product (focus-view dropdown).
+   Single series on the card surface; hover a bar for the exact number.
+   The last data week is usually partial and rendered hollow/dashed. ── */
+function OrderGraph(props) {
+  var wk = props.weekOrders || {};
+  var stHov = useState(null); var hov = stHov[0]; var setHov = stHov[1];
+  var weeks = Object.keys(wk).map(Number).filter(function (w) { return (wk[w] || 0) > 0; });
+  if (weeks.length === 0) return <div style={{ fontSize: 10, color: N.textT, padding: "8px 2px" }}>No weekly order data for this product.</div>;
+  var first = Math.min.apply(null, weeks);
+  var last = Math.max.apply(null, weeks.concat([props.latestWeek || 0]));
+  var series = [];
+  for (var w = first; w <= last; w++) series.push({ week: w, orders: wk[w] || 0 });
+  var max = 1;
+  series.forEach(function (d) { if (d.orders > max) max = d.orders; });
+  // Trend: best consecutive-2-week stretch vs the last 2 COMPLETE weeks (current week is partial).
+  var peak2 = 0;
+  for (var i = 1; i < series.length; i++) peak2 = Math.max(peak2, series[i - 1].orders + series[i].orders);
+  var n = series.length;
+  var recent2 = n >= 3 ? series[n - 3].orders + series[n - 2].orders : series[n - 1].orders + (n >= 2 ? series[n - 2].orders : 0);
+  var trend = null;
+  if (peak2 >= 20) {
+    if (recent2 <= 0.35 * peak2) trend = { color: N.red, text: "Orders collapsed — " + recent2 + " in the last 2 full weeks vs " + peak2 + " at peak. Updating this product may no longer be worth it." };
+    else if (recent2 <= 0.6 * peak2) trend = { color: N.orange, text: "Orders declining — " + recent2 + " in the last 2 full weeks vs " + peak2 + " at peak." };
+  }
+  var step = Math.max(1, Math.ceil(series.length / 8));
+  var hovD = hov != null ? series[hov] : null;
+  return (
+    <div style={{ marginTop: 8, background: "rgba(255,255,255,0.03)", border: "1px solid " + N.border, borderRadius: 10, padding: "10px 12px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+        <span style={{ fontSize: 9, fontWeight: 600, color: N.textT }}>Weekly orders {"·"} W{first}{"–"}W{last}</span>
+        <span style={{ fontSize: 10, fontWeight: 700, color: N.text, fontVariantNumeric: "tabular-nums" }}>
+          {hovD ? "W" + hovD.week + " · " + hovD.orders.toLocaleString() + " orders" : "peak " + max.toLocaleString() + "/wk"}
+        </span>
+      </div>
+      <div style={{ position: "relative", height: 96 }} onMouseLeave={function () { setHov(null); }}>
+        {[0.5, 1].map(function (f) {
+          return <div key={f} style={{ position: "absolute", left: 0, right: 0, bottom: (f * 100) + "%", borderTop: "1px solid rgba(210,218,230,0.06)" }} />;
+        })}
+        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "flex-end", gap: 2 }}>
+          {series.map(function (d, i) {
+            var partial = i === series.length - 1;
+            var hPct = d.orders > 0 ? Math.max(3, (d.orders / max) * 100) : 0;
+            return (
+              <div key={d.week} onMouseEnter={function () { setHov(i); }} title={"W" + d.week + " · " + d.orders + " orders"}
+                style={{ flex: 1, minWidth: 0, height: "100%", display: "flex", alignItems: "flex-end", cursor: "default" }}>
+                <div style={{ width: "100%", height: hPct + "%", borderRadius: "3px 3px 0 0", background: partial ? "rgba(76,141,246,0.35)" : (hov === i ? "#6BA3F8" : N.blue), minHeight: d.orders > 0 ? 3 : 0 }} />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 2, marginTop: 3 }}>
+        {series.map(function (d, i) {
+          return (
+            <div key={d.week} style={{ flex: 1, minWidth: 0, textAlign: "center", fontSize: 7.5, color: hov === i ? N.textS : N.textT, whiteSpace: "nowrap", overflow: "hidden" }}>
+              {(i % step === 0 || i === series.length - 1) ? "W" + d.week : ""}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 8.5, color: N.textT, marginTop: 5 }}>Last bar = current data week (partial, lighter).</div>
+      {trend && <div style={{ fontSize: 9.5, fontWeight: 600, color: trend.color, marginTop: 3 }}>{trend.text}</div>}
+    </div>
+  );
+}
+
 function FocusPanel(props) {
   var row = props.row;
   var stA = useState(false); var showForm = stA[0]; var setShowForm = stA[1];
-  var stF = useState({ category: "too_small", action: "", expectedEffect: "", notes: "" });
+  var stF = useState({ category: "too_small", action: "", expectedEffect: "", notes: "", checkin: false });
   var form = stF[0]; var setForm = stF[1];
   var stEA = useState(null); var editingAction = stEA[0]; var setEditingAction = stEA[1];
 
   function startEditAction(a) {
-    setForm({ category: a.category || "too_small", action: a.action || "", expectedEffect: a.expectedEffect || "", notes: a.notes || "" });
+    setForm({ category: a.category || "too_small", action: a.action || "", expectedEffect: a.expectedEffect || "", notes: a.notes || "", checkin: (a.status || "").toLowerCase() === "check in" });
     setEditingAction(a);
     setShowForm(true);
   }
@@ -1103,8 +1225,17 @@ function FocusPanel(props) {
   var stSN = useState(""); var stopNote = stSN[0]; var setStopNote = stSN[1];
   var stSF = useState(false); var showStopForm = stSF[0]; var setShowStopForm = stSF[1];
   var stAll = useState(false); var showAll = stAll[0]; var setShowAll = stAll[1];
-  var stSince = useState(false); var showSince = stSince[0]; var setShowSince = stSince[1];
+  var stSince = useState(true); var showSince = stSince[0]; var setShowSince = stSince[1]; // open by default, collapsible
   var stCatF = useState("all"); var catFilter = stCatF[0]; var setCatFilter = stCatF[1];
+  var stSlackO = useState(false); var showSlack = stSlackO[0]; var setShowSlack = stSlackO[1];
+  var stSlack = useState({ loaded: false, loading: false, configured: false, messages: [], hint: "" }); var slack = stSlack[0]; var setSlack = stSlack[1];
+  var stGraph = useState(false); var showGraph = stGraph[0]; var setShowGraph = stGraph[1];
+  // QC photo replace/delete (writes to Notion via /api/qc-photo)
+  var stQcMenu = useState(null); var qcMenu = stQcMenu[0]; var setQcMenu = stQcMenu[1];
+  var stQcBusy = useState(""); var qcBusy = stQcBusy[0]; var setQcBusy = stQcBusy[1];
+  var stQcRef = useState(0); var qcRefresh = stQcRef[0]; var setQcRefresh = stQcRef[1];
+  var qcFileRef = useRef(null);
+  var qcReplaceIdxRef = useRef(null);
 
   var quotes = props.quotes || [];
   var contrib = props.contrib;
@@ -1177,10 +1308,17 @@ function FocusPanel(props) {
     return function () { window.removeEventListener("keydown", onKey, true); };
   }, [preview]);
 
+  // Open sections + Slack results belong to one product — reset when stepping ‹ ›.
+  useEffect(function () {
+    setShowSlack(false); setShowGraph(false); setQcMenu(null); setQcBusy("");
+    setSlack({ loaded: false, loading: false, configured: false, messages: [], hint: "" });
+  }, [row.key]);
+
   useEffect(function () {
     setQC(null); setQCErr(""); setQCDone(false);
     var alive = true;
-    fetch(NOTION_QC_PATH + "?pid=" + encodeURIComponent(row.key) + "&store=" + encodeURIComponent(props.storeName || ""))
+    // qcRefresh bumps after a photo replace/delete — the extra param busts the CDN cache.
+    fetch(NOTION_QC_PATH + "?pid=" + encodeURIComponent(row.key) + "&store=" + encodeURIComponent(props.storeName || "") + (qcRefresh ? "&fresh=" + qcRefresh + "-" + Date.now() : ""))
       .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
       .then(function (x) {
         if (!alive) return;
@@ -1191,7 +1329,53 @@ function FocusPanel(props) {
       .catch(function (e) { if (alive) console.warn("[notion-qc] unreachable (local dev?)", e); })
       .finally(function () { if (alive) setQCDone(true); });
     return function () { alive = false; };
-  }, [row.key, props.storeName]);
+  }, [row.key, props.storeName, qcRefresh]);
+
+  function qcMutate(payload) {
+    setQcBusy("Saving…"); setQcMenu(null);
+    return fetch(QC_PHOTO_PATH, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(Object.assign({ pid: row.key, store: props.storeName || "" }, payload)),
+    })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok || (j && j.error)) throw new Error((j && j.error) || "update failed"); }); })
+      .then(function () { setQcBusy(""); setQcRefresh(function (x) { return x + 1; }); })
+      .catch(function (e) { setQcBusy(""); alert("QC photo update failed: " + String(e.message || e)); });
+  }
+  function qcDelete(i) {
+    if (!window.confirm("Delete this QC photo from Notion?")) return;
+    qcMutate({ action: "delete", index: i });
+  }
+  function qcPickReplacement(i) {
+    qcReplaceIdxRef.current = i;
+    setQcMenu(null);
+    if (qcFileRef.current) qcFileRef.current.click();
+  }
+  function qcFilePicked(e) {
+    var f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    var idx = qcReplaceIdxRef.current;
+    setQcBusy("Reading file…");
+    imageFileToDataUrl(f, function (err, dataUrl) {
+      if (err) { setQcBusy(""); alert(String(err.message || err)); return; }
+      qcMutate({ action: "replace", index: idx, filename: f.name, dataUrl: dataUrl });
+    });
+  }
+
+  function toggleSlack() {
+    var next = !showSlack;
+    setShowSlack(next);
+    if (!next || slack.loaded || slack.loading) return;
+    setSlack(Object.assign({}, slack, { loading: true }));
+    fetch(SLACK_SEARCH_PATH + "?q=" + encodeURIComponent(slackTermFor(row.product)))
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        setSlack({ loaded: true, loading: false, configured: !!(j && j.configured), messages: (j && j.messages) || [], hint: (j && (j.hint || j.error)) || "" });
+      })
+      .catch(function (e) {
+        setSlack({ loaded: true, loading: false, configured: false, messages: [], hint: "Slack search unreachable (local dev?) — " + String(e.message || e) });
+      });
+  }
 
   var stSaved = useState(false); var savedMsg = stSaved[0]; var setSavedMsg = stSaved[1];
   function submitAction() {
@@ -1203,7 +1387,7 @@ function FocusPanel(props) {
     doLog
       .then(function () {
         setBusy(false); setShowForm(false); setEditingAction(null);
-        setForm({ category: "too_small", action: "", expectedEffect: "", notes: "" });
+        setForm({ category: "too_small", action: "", expectedEffect: "", notes: "", checkin: false });
         setSavedMsg(true);
         setTimeout(function () { setSavedMsg(false); if (props.onClose) props.onClose(); }, 1100);
       })
@@ -1225,7 +1409,14 @@ function FocusPanel(props) {
     <div style={{ background: "radial-gradient(700px 300px at 0% 0%, rgba(56,140,255,0.10), transparent 60%), linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0) 30%), " + N.bgC, border: "1px solid " + N.borderS, borderRadius: 22, padding: 18, display: "flex", flexDirection: "column", gap: 14, position: "relative", zIndex: 40, boxShadow: "0 30px 80px rgba(0,0,0,0.65), 0 0 0 1px rgba(56,140,255,0.10)" }}>
 
       <div style={{ fontSize: 14, fontWeight: 700, color: N.text, display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-        <span style={{ flex: 1 }}>{row.product}</span>
+        <span>{row.product}</span>
+        {props.fulfiller && (
+          <span title={props.fulfiller === "CJ" ? "Listed in the “Products switched to CJ” Notion database" : "Default fulfiller (not in the CJ database)"}
+            style={{ fontSize: 9, fontWeight: 700, color: N.textS, background: "rgba(255,255,255,0.06)", border: "1px solid " + N.border, padding: "2px 8px", borderRadius: 10, letterSpacing: "0.05em", textTransform: "uppercase", alignSelf: "center" }}>
+            {props.fulfiller}
+          </span>
+        )}
+        <span style={{ flex: 1 }} />
         {qc && qc.notionUrl && <a href={qc.notionUrl} target="_blank" rel="noreferrer" style={{ fontSize: 10, fontWeight: 500, color: N.textS, textDecoration: "none" }}>Notion {"\u2197"}</a>}
         {props.onClose && (
           <button onClick={props.onClose} style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit" }}>Exit (Esc)</button>
@@ -1237,7 +1428,7 @@ function FocusPanel(props) {
         <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.9)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", cursor: "zoom-out", animation: "lbFade 0.15s ease" }}
           onClick={function () { setPreview(null); }}>
           <style>{"@keyframes lbFade{from{opacity:0}to{opacity:1}}@keyframes lbPop{from{opacity:0;transform:scale(0.88)}to{opacity:1;transform:scale(1)}}"}</style>
-          <img src={preview} alt="preview" style={{ maxWidth: "92vw", maxHeight: "92vh", width: "auto", height: "auto", objectFit: "contain", borderRadius: 12, boxShadow: "0 16px 64px rgba(0,0,0,0.9)", animation: "lbPop 0.18s cubic-bezier(0.2, 0.8, 0.3, 1)" }} />
+          <img src={preview} alt="preview" style={{ width: "94vw", height: "94vh", objectFit: "contain", borderRadius: 12, boxShadow: "0 16px 64px rgba(0,0,0,0.9)", animation: "lbPop 0.18s cubic-bezier(0.2, 0.8, 0.3, 1)" }} />
         </div>,
         document.body
       )}
@@ -1251,18 +1442,56 @@ function FocusPanel(props) {
             )}
             {qc && qc.qcImages && qc.qcImages.length > 0 && (
               <div>
-                <div style={{ fontSize: 9, fontWeight: 600, color: N.textT, marginBottom: 4 }}>Factory QC photos</div>
+                <div style={{ fontSize: 9, fontWeight: 600, color: N.textT, marginBottom: 4 }}>
+                  Factory QC photos {qcBusy && <span style={{ color: N.orange }}>{qcBusy}</span>}
+                </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, width: 170 }}>
                   {qc.qcImages.slice(0, 4).map(function (u, i) {
                     return (
-                      <a key={i} href={u} target="_blank" rel="noreferrer" title={"Click to enlarge \u00B7 Cmd/Ctrl-click opens the file"}
-                        onClick={function (e) { if (e.metaKey || e.ctrlKey || e.shiftKey) return; e.preventDefault(); setPreview(u); }}>
-                        <img src={u} alt={"QC " + (i + 1)} style={{ width: 82, height: 82, objectFit: "cover", borderRadius: 12, border: "1px solid " + N.border, background: N.bg, display: "block", cursor: "zoom-in" }} />
-                      </a>
+                      <div key={i} className="qcThumbWrap" style={{ position: "relative" }}>
+                        <a href={u} target="_blank" rel="noreferrer" title={"Click to enlarge \u00B7 Cmd/Ctrl-click opens the file"}
+                          onClick={function (e) { if (e.metaKey || e.ctrlKey || e.shiftKey) return; e.preventDefault(); setPreview(u); }}>
+                          <img src={u} alt={"QC " + (i + 1)} style={{ width: 82, height: 82, objectFit: "cover", borderRadius: 12, border: "1px solid " + N.border, background: N.bg, display: "block", cursor: "zoom-in" }} />
+                        </a>
+                        <button className="qcTools" onClick={function (e) { e.preventDefault(); e.stopPropagation(); setQcMenu(qcMenu === i ? null : i); }}
+                          title="Replace or delete this QC photo (writes to Notion)"
+                          style={{ position: "absolute", left: 3, bottom: 3, background: "rgba(10,11,13,0.82)", border: "1px solid " + N.borderS, color: N.textS, fontSize: 8, fontWeight: 700, padding: "2px 6px", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>
+                          Replace
+                        </button>
+                        {qcMenu === i && (
+                          <div style={{ position: "absolute", left: 3, bottom: 22, background: "#161A1F", border: "1px solid " + N.borderS, borderRadius: 8, padding: 4, zIndex: 6, display: "flex", flexDirection: "column", gap: 2, boxShadow: "0 10px 28px rgba(0,0,0,0.65)", minWidth: 128 }}>
+                            <button onClick={function () { qcPickReplacement(i); }}
+                              style={{ background: "transparent", border: "none", color: N.text, fontSize: 9.5, fontWeight: 600, padding: "4px 7px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+                              Replace with file{"\u2026"}
+                            </button>
+                            <button onClick={function () { qcDelete(i); }}
+                              style={{ background: "transparent", border: "none", color: N.red, fontSize: 9.5, fontWeight: 600, padding: "4px 7px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+                              Delete photo
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                 </div>
                 {qc.qcImages.length > 4 && <div style={{ fontSize: 8, color: N.textT, marginTop: 2 }}>+{qc.qcImages.length - 4} more in Notion</div>}
+                <input ref={qcFileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={qcFilePicked} />
+              </div>
+            )}
+            {qc && qc.customerPhotos && qc.customerPhotos.length > 0 && (
+              <div>
+                <div style={{ fontSize: 9, fontWeight: 600, color: N.textT, marginBottom: 4 }}>Customer photos</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, width: 170 }}>
+                  {qc.customerPhotos.slice(0, 4).map(function (u, i) {
+                    return (
+                      <a key={i} href={u} target="_blank" rel="noreferrer" title={"Click to enlarge \u00B7 Cmd/Ctrl-click opens the file"}
+                        onClick={function (e) { if (e.metaKey || e.ctrlKey || e.shiftKey) return; e.preventDefault(); setPreview(u); }}>
+                        <img src={u} alt={"Customer " + (i + 1)} style={{ width: 82, height: 82, objectFit: "cover", borderRadius: 12, border: "1px solid " + N.border, background: N.bg, display: "block", cursor: "zoom-in" }} />
+                      </a>
+                    );
+                  })}
+                </div>
+                {qc.customerPhotos.length > 4 && <div style={{ fontSize: 8, color: N.textT, marginTop: 2 }}>+{qc.customerPhotos.length - 4} more in Notion</div>}
               </div>
             )}
             {qc && (qc.sizeChart || qc.updatedSizeChart) && (
@@ -1432,6 +1661,12 @@ function FocusPanel(props) {
               <button disabled={busy} onClick={submitAction} style={btnStyle(N.quiet.text, N.quiet.bg, N.quiet.border)}>{busy ? "Saving\u2026" : (editingAction ? "Update log entry" : "Save to sheet")}</button>
               <button disabled={busy} onClick={function () { setShowForm(false); }} style={btnStyle(N.textS, "transparent", N.border)}>Cancel</button>
             </div>
+            <label style={{ gridColumn: "1 / span 3", display: "flex", alignItems: "center", gap: 7, cursor: "pointer" }}>
+              <input type="checkbox" checked={!!form.checkin} onChange={function (e) { setForm(Object.assign({}, form, { checkin: e.target.checked })); }} />
+              <span style={{ fontSize: 10, color: N.textS }}>
+                Check in {"\u2014"} edit outside our control. Status becomes {"\u201c"}Check in{"\u201d"} and Amber gets a daily Slack follow-up until the sheet status is changed.
+              </span>
+            </label>
           </div>
         )}
         {showStopForm && (
@@ -1447,12 +1682,20 @@ function FocusPanel(props) {
         <ActionHistory items={props.actionItems} onUndo={props.onUndoAction} onEdit={startEditAction} />
       </div>
 
-      {/* All complaints, 1 row each */}
+      {/* All complaints / Slack messages / order graph */}
       <div style={{ borderTop: "1px solid " + N.border, paddingTop: 10 }}>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <button onClick={function () { setShowAll(!showAll); }}
             style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 10, fontWeight: 600, padding: "4px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit" }}>
             {showAll ? "Hide" : "Show"} all complaints ({(props.allRows || []).length}) {showAll ? "\u25B4" : "\u25BE"}
+          </button>
+          <button onClick={toggleSlack}
+            style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 10, fontWeight: 600, padding: "4px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit" }}>
+            All Slack messages {showSlack ? "\u25B4" : "\u25BE"}
+          </button>
+          <button onClick={function () { setShowGraph(!showGraph); }}
+            style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 10, fontWeight: 600, padding: "4px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit" }}>
+            Order graph {showGraph ? "\u25B4" : "\u25BE"}
           </button>
           {showAll && (
             <select value={catFilter} onChange={function (e) { setCatFilter(e.target.value); }}
@@ -1467,16 +1710,26 @@ function FocusPanel(props) {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10.5 }}>
               <thead>
                 <tr>
-                  {["Week", "Category", "Ticket text"].map(function (h) {
-                    return <th key={h} style={{ background: N.bgS, color: N.textS, fontWeight: 600, fontSize: 9, textAlign: "left", padding: "6px 10px", position: "sticky", top: 0 }}>{h}</th>;
+                  {["#", "", "Week", "Category", "Ticket text"].map(function (h, hi) {
+                    return <th key={hi} style={{ background: N.bgS, color: N.textS, fontWeight: 600, fontSize: 9, textAlign: "left", padding: "6px 10px", position: "sticky", top: 0 }}>{h}</th>;
                   })}
                 </tr>
               </thead>
               <tbody>
                 {(props.allRows || []).filter(function (c) { return catFilter === "all" || c.type === catFilter; }).map(function (c, i) {
                   var cat = CATEGORIES.find(function (x) { return x.key === c.type; });
+                  var href = ticketHref(c);
                   return (
                     <tr key={i}>
+                      <td style={{ padding: "5px 4px 5px 10px", color: N.textT, borderBottom: "1px solid " + N.border, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", width: 26 }}>{i + 1}</td>
+                      <td style={{ padding: "5px 6px", borderBottom: "1px solid " + N.border, whiteSpace: "nowrap", width: 22 }}>
+                        {href ? (
+                          <a href={href} target="_blank" rel="noreferrer" title="Open the Re:amaze ticket"
+                            style={{ color: N.grey, textDecoration: "none", fontSize: 11, fontWeight: 700 }}>{"\u2197"}</a>
+                        ) : (
+                          <span title="No ticket link in the sheet for this complaint" style={{ color: "rgba(236,238,242,0.14)", fontSize: 11 }}>{"\u2197"}</span>
+                        )}
+                      </td>
                       <td style={{ padding: "5px 10px", color: N.textS, borderBottom: "1px solid " + N.border, whiteSpace: "nowrap" }}>W{c.week != null ? c.week : "?"}</td>
                       <td style={{ padding: "5px 10px", color: N.textS, borderBottom: "1px solid " + N.border, whiteSpace: "nowrap" }}>{cat ? cat.label : c.type}</td>
                       <td style={{ padding: "5px 10px", color: N.textS, borderBottom: "1px solid " + N.border }}>{c.summary || "\u2014"}</td>
@@ -1487,258 +1740,242 @@ function FocusPanel(props) {
             </table>
           </div>
         )}
+        {showSlack && (
+          <div style={{ marginTop: 8, maxHeight: 260, overflowY: "auto", border: "1px solid " + N.border, borderRadius: 10, padding: "8px 10px" }}>
+            <div style={{ fontSize: 9, color: N.textT, marginBottom: 6 }}>
+              Slack messages matching {"\u201C"}{slackTermFor(row.product)}{"\u201D"}
+            </div>
+            {slack.loading && <div style={{ fontSize: 10, color: N.textS }}>Searching Slack{"\u2026"}</div>}
+            {slack.loaded && !slack.loading && !slack.configured && (
+              <div style={{ fontSize: 10, color: N.textT, lineHeight: 1.5 }}>{slack.hint || "Slack is not configured \u2014 set SLACK_USER_TOKEN (scope search:read) in the Vercel env."}</div>
+            )}
+            {slack.loaded && slack.configured && slack.messages.length === 0 && (
+              <div style={{ fontSize: 10, color: N.textT }}>No Slack messages mention this product.</div>
+            )}
+            {slack.messages.map(function (m, i) {
+              return (
+                <div key={i} style={{ padding: "6px 0", borderTop: i === 0 ? "none" : "1px solid " + N.border }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "baseline", fontSize: 9.5 }}>
+                    <span style={{ color: N.text, fontWeight: 700 }}>{m.who || "?"}</span>
+                    <span style={{ color: N.textT }}>#{m.channel || "?"}</span>
+                    <span style={{ color: N.textT }}>{m.date || ""}</span>
+                    <span style={{ flex: 1 }} />
+                    {m.permalink && (
+                      <a href={m.permalink} target="_blank" rel="noreferrer" style={{ color: N.textS, textDecoration: "none", fontSize: 10 }} title="Open in Slack">{"\u2197"}</a>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: N.textS, lineHeight: 1.5, whiteSpace: "pre-wrap", overflowWrap: "break-word" }}>{m.text}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {showGraph && <OrderGraph weekOrders={props.weekOrders} latestWeek={props.latestWeek} />}
       </div>
     </div>
   );
 }
 
 /* ══════════════════════════════════════════
-   FLOATING WIDGETS — AI chat + report generator
+   STICKY PANELS — notepad + AI chat as fold-out tabs on the right edge
+   (same pattern as the 5+ sales QC dashboard). The focus card slides left
+   while one is open; panel open-state lives in the main component.
    ══════════════════════════════════════════ */
-function FloatingWidgets(props) {
-  var stOpen = useState(null); var open = stOpen[0]; var setOpen = stOpen[1]; // null | "chat" | "reports"
-  var stMsgs = useState([]); var msgs = stMsgs[0]; var setMsgs = stMsgs[1];
-  var stIn = useState(""); var input = stIn[0]; var setInput = stIn[1];
-  var stBusy = useState(false); var busy = stBusy[0]; var setBusy = stBusy[1];
-  var stRep = useState({ loading: false, text: "", error: "" }); var rep = stRep[0]; var setRep = stRep[1];
-  var stFb = useState([]); var fbMsgs = stFb[0]; var setFbMsgs = stFb[1];
-  var stFbIn = useState(""); var fbInput = stFbIn[0]; var setFbInput = stFbIn[1];
-  var stFbBusy = useState(false); var fbBusy = stFbBusy[0]; var setFbBusy = stFbBusy[1];
-  var stFbRule = useState(null); var proposedRule = stFbRule[0]; var setProposedRule = stFbRule[1];
-  var stRules = useState(getCustomRules); var rules = stRules[0]; var setRules = stRules[1];
+function StickyPanels(props) {
+  return (
+    <>
+      <NotePadPanel open={props.noteOpen} onToggle={props.onToggleNote} storeName={props.storeName} chatContext={props.chatContext} />
+      <ChatPanel open={props.chatOpen} onToggle={props.onToggleChat} storeName={props.storeName} chatContext={props.chatContext} />
+    </>
+  );
+}
 
-  function sendFeedback() {
-    var q = fbInput.trim();
-    if (!q || fbBusy) return;
-    var next = fbMsgs.concat([{ role: "user", content: q }]);
-    setFbMsgs(next); setFbInput(""); setFbBusy(true); setProposedRule(null);
-    fetch(FEEDBACK_API_PATH, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: next.slice(-16), rules: rules }),
-    }).then(function (r) { return r.json(); }).then(function (j) {
-      setFbBusy(false);
-      setFbMsgs(next.concat([{ role: "assistant", content: j.reply || j.error || "No response" }]));
-      if (j.proposedRule) setProposedRule(j.proposedRule);
-    }).catch(function (e) {
-      setFbBusy(false);
-      setFbMsgs(next.concat([{ role: "assistant", content: "Unavailable (" + String(e.message || e) + "). Works on the deployed Vercel site." }]));
-    });
-  }
-  function addRule(r) {
-    var next = rules.concat([r]);
-    setRules(next); saveCustomRules(next); setProposedRule(null);
-  }
-  function removeRule(i) {
-    var next = rules.slice(); next.splice(i, 1);
-    setRules(next); saveCustomRules(next);
-  }
-
-  var stNotes = useState(function () {
+/* Floating notepad: an unobtrusive tab on the right edge that slides open a
+   panel. Notes autosave to localStorage (same key as the old Notes widget, so
+   nothing is lost); "send to Slack" relays the text through /api/note. */
+function NotePadPanel(props) {
+  var open = props.open;
+  var stText = useState(function () {
     try { return window.localStorage.getItem("rene-report-notes") || ""; } catch (e) { return ""; }
   });
-  var notes = stNotes[0]; var setNotes = stNotes[1];
-  function saveNotes(v) {
-    setNotes(v);
+  var text = stText[0]; var setText = stText[1];
+  var stState = useState(""); var state = stState[0]; var setState = stState[1];
+  var timer = useRef(null);
+
+  function onChange(e) {
+    var v = e.target.value;
+    setText(v);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(function () {
+      try { window.localStorage.setItem("rene-report-notes", v); } catch (e2) { /* private mode */ }
+      setState("✓ saved");
+      setTimeout(function () { setState(function (s) { return s === "✓ saved" ? "" : s; }); }, 1500);
+    }, 800);
+  }
+  function addProductLine() {
+    if (!props.chatContext || !props.chatContext.product) return;
+    var line = "• " + props.chatContext.product + " (" + (props.storeName || "") + "): ";
+    var v = text ? text.replace(/\s*$/, "") + "\n" + line : line;
+    setText(v);
     try { window.localStorage.setItem("rene-report-notes", v); } catch (e) { /* no-op */ }
   }
-
   function send() {
-    var q = input.trim();
-    if (!q || busy) return;
-    var next = msgs.concat([{ role: "user", content: q }]);
-    setMsgs(next); setInput(""); setBusy(true);
-    fetch(CHAT_API_PATH, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: next.slice(-20), context: props.chatContext }),
-    }).then(function (r) { return r.json(); }).then(function (j) {
-      setBusy(false);
-      setMsgs(next.concat([{ role: "assistant", content: j.text || j.error || "No response" }]));
-    }).catch(function (e) {
-      setBusy(false);
-      setMsgs(next.concat([{ role: "assistant", content: "Chat unavailable (" + String(e.message || e) + "). Works on the deployed Vercel site." }]));
-    });
+    if (!text.trim()) return;
+    setState("sending…");
+    fetch(NOTE_API_PATH, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: text }),
+    })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || "Slack unreachable"); }); })
+      .then(function () { setState("✓ sent to Slack"); })
+      .catch(function (e) { setState("❌ " + String(e.message || e)); });
   }
-
-  function makeReport(type) {
-    setRep({ loading: true, text: "", error: "" });
-    fetch(REPORT_API_PATH, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: type, data: props.reportData }),
-    }).then(function (r) { return r.json(); }).then(function (j) {
-      if (j.error) setRep({ loading: false, text: "", error: j.error });
-      else setRep({ loading: false, text: j.text || "", error: "" });
-    }).catch(function (e) {
-      setRep({ loading: false, text: "", error: "Unavailable (" + String(e.message || e) + "). Works on the deployed Vercel site." });
-    });
-  }
-
-  var panelBase = { position: "fixed", right: 14, bottom: 60, width: 400, maxWidth: "90vw", maxHeight: "72vh", background: "linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0) 30%), " + N.bgC, border: "1px solid " + N.borderS, borderRadius: 20, display: "flex", flexDirection: "column", boxShadow: "0 24px 60px rgba(0,0,0,0.65)", zIndex: 50 };
-  var fabStyle = function (active) {
-    return { background: active ? "rgba(255,255,255,0.12)" : N.bgC, border: "1px solid " + N.border, color: N.textS, fontSize: 11, fontWeight: 600, padding: "7px 14px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" };
-  };
 
   return (
     <>
-      <div style={{ position: "fixed", right: 14, bottom: 14, display: "flex", gap: 8, zIndex: 51 }}>
-        <button onClick={function () { setOpen(open === "chat" ? null : "chat"); }} style={fabStyle(open === "chat")}>AI chat</button>
-        <button onClick={function () { setOpen(open === "reports" ? null : "reports"); }} style={fabStyle(open === "reports")}>Reports</button>
-        <button onClick={function () { setOpen(open === "notes" ? null : "notes"); }} style={fabStyle(open === "notes")}>
-          Notes{notes.trim() ? " \u2022" : ""}
-        </button>
-        <button onClick={function () { setOpen(open === "feedback" ? null : "feedback"); }} style={fabStyle(open === "feedback")}>Analysis feedback</button>
+      <button onClick={props.onToggle} title="Notepad"
+        style={{
+          position: "fixed", right: open ? 320 : 0, top: "40%", zIndex: 71,
+          background: "#232932", border: "1px solid rgba(210,218,230,0.15)", borderRight: 0,
+          borderRadius: "10px 0 0 10px", padding: "10px 11px",
+          color: open ? N.blueText : "rgba(236,238,242,0.6)", cursor: "pointer",
+          display: "flex", alignItems: "center", transition: "right .2s, color .15s",
+        }}>
+        <Ico name="note" size={16} />
+      </button>
+      <div style={{
+        position: "fixed", right: open ? 0 : -320, top: 0, bottom: 0, width: 320,
+        background: "#232932", borderLeft: "1px solid rgba(210,218,230,0.12)", zIndex: 70,
+        display: "flex", flexDirection: "column", padding: 12, transition: "right .2s",
+      }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 6 }}>
+          <span style={{ fontSize: 12, fontWeight: 800, color: N.text }}>Notepad</span>
+          <span style={{ fontWeight: 400, color: "rgba(236,238,242,0.45)", fontSize: 10 }}>{state}</span>
+          <span style={{ flex: 1 }} />
+          {props.chatContext && props.chatContext.product && (
+            <button onClick={addProductLine} title="Start a line for the focused product"
+              style={{ background: "transparent", border: "1px solid rgba(210,218,230,0.15)", color: "rgba(236,238,242,0.45)", fontSize: 9, padding: "2px 8px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>
+              + product line
+            </button>
+          )}
+        </div>
+        <textarea value={text} onChange={onChange} placeholder={"Ideas, products to check, loose thoughts… saved automatically."}
+          style={{ flex: 1, border: "1px solid rgba(210,218,230,0.15)", borderRadius: 8, background: "#1E242B", color: "rgba(236,238,242,0.9)", padding: 10, fontSize: 12, lineHeight: 1.5, resize: "none", outline: "none", fontFamily: "inherit" }} />
+        <div style={{ marginTop: 8, textAlign: "right" }}>
+          <button onClick={send}
+            style={{ background: "rgba(76,141,246,0.14)", color: "#8FB8F5", border: "1px solid rgba(76,141,246,0.35)", borderRadius: 8, padding: "6px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+            {"→"} send to Slack
+          </button>
+        </div>
       </div>
+    </>
+  );
+}
 
-      {open === "chat" && (
-        <div style={panelBase}>
-          <div style={{ padding: "10px 14px", borderBottom: "1px solid " + N.border, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: N.text }}>
-              AI chat {props.chatContext && props.chatContext.product ? "\u00B7 " + props.chatContext.product : "\u00B7 " + (props.storeName || "")}
-            </div>
-            <button onClick={function () { setMsgs([]); }} style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>Clear</button>
-          </div>
-          <div style={{ flex: 1, overflowY: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 8, minHeight: 180 }}>
-            {msgs.length === 0 && (
-              <div style={{ fontSize: 10.5, color: N.textT, lineHeight: 1.5 }}>
-                {props.chatContext && props.chatContext.product
-                  ? "Ask about this product. Paste a size chart to adjust it, or ask for an image-edit prompt."
-                  : "Open a product (click its title) to chat about it, or ask a general question about this store."}
-              </div>
-            )}
-            {msgs.map(function (m, i) {
-              return (
-                <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "88%", background: m.role === "user" ? "rgba(56,140,255,0.15)" : N.bg, border: "1px solid " + N.border, borderRadius: 10, padding: "5px 7px", fontSize: 11, color: N.text, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
-                  {m.content}
-                </div>
-              );
-            })}
-            {busy && <div style={{ fontSize: 10, color: N.textT }}>Thinking{"\u2026"}</div>}
-          </div>
-          <div style={{ padding: 10, borderTop: "1px solid " + N.border, display: "flex", gap: 8 }}>
-            <textarea value={input} rows={2} placeholder="Type here (Enter to send, Shift+Enter for a new line)"
-              onChange={function (e) { setInput(e.target.value); }}
-              onKeyDown={function (e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-              style={{ flex: 1, background: N.bg, border: "1px solid " + N.border, borderRadius: 9, color: N.text, fontSize: 11, fontFamily: "inherit", padding: "7px 9px", outline: "none", resize: "none" }} />
-            <button onClick={send} disabled={busy} style={{ background: "rgba(255,255,255,0.1)", border: "1px solid " + N.border, color: N.text, fontSize: 11, fontWeight: 600, padding: "0 14px", borderRadius: 9, cursor: "pointer", fontFamily: "inherit" }}>Send</button>
-          </div>
+/* AI sparring partner: second sticky tab under the notepad's, sliding open a
+   chat panel about the focused product (existing /api/chat + chatContext). */
+function ChatPanel(props) {
+  var open = props.open;
+  var stMsgs = useState([]); var msgs = stMsgs[0]; var setMsgs = stMsgs[1];
+  var stText = useState(""); var text = stText[0]; var setText = stText[1];
+  var stBusy = useState(false); var busy = stBusy[0]; var setBusy = stBusy[1];
+  var listRef = useRef(null);
+  var product = props.chatContext && props.chatContext.product;
+
+  useEffect(function () {
+    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+  }, [msgs, busy]);
+
+  // The chat belongs to one product — stepping ‹ › must not carry the previous conversation along.
+  useEffect(function () {
+    setMsgs([]); setBusy(false);
+  }, [product]);
+
+  function send(q) {
+    var t = String(q || "").trim();
+    if (!t || busy) return;
+    var history = msgs.concat([{ role: "user", content: t }]);
+    setMsgs(history); setBusy(true);
+    fetch(CHAT_API_PATH, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: history.slice(-20), context: props.chatContext }),
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      setBusy(false);
+      setMsgs(history.concat([{ role: "assistant", content: j.text || j.error || "No response" }]));
+    }).catch(function (e) {
+      setBusy(false);
+      setMsgs(history.concat([{ role: "assistant", content: "Chat unavailable (" + String(e.message || e) + "). Works on the deployed Vercel site." }]));
+    });
+  }
+  function submit(e) {
+    e.preventDefault();
+    var t = text.trim();
+    if (!t || busy) return;
+    setText("");
+    send(t);
+  }
+
+  return (
+    <>
+      <button onClick={props.onToggle} title="AI chat"
+        style={{
+          position: "fixed", right: open ? 380 : 0, top: "calc(40% + 46px)", zIndex: 76,
+          background: "#232932", border: "1px solid rgba(210,218,230,0.15)", borderRight: 0,
+          borderRadius: "10px 0 0 10px", padding: "10px 11px",
+          color: open ? N.blueText : "rgba(236,238,242,0.6)", cursor: "pointer",
+          display: "flex", alignItems: "center", transition: "right .2s, color .15s",
+        }}>
+        <Ico name="sparkle" size={16} weight={2} />
+      </button>
+      <div style={{
+        position: "fixed", right: open ? 0 : -380, top: 0, bottom: 0, width: 380,
+        background: "#232932", borderLeft: "1px solid rgba(210,218,230,0.12)", zIndex: 75,
+        display: "flex", flexDirection: "column", padding: 12, transition: "right .2s",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <span style={{ fontSize: 12, fontWeight: 800, color: N.text, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            AI {"·"} {product || (props.storeName || "")}
+          </span>
+          <button onClick={function () { setMsgs([]); }} title="Clear the conversation"
+            style={{ background: "transparent", border: "1px solid rgba(210,218,230,0.15)", color: "rgba(236,238,242,0.45)", fontSize: 9, padding: "2px 8px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>Clear</button>
+          <button onClick={props.onToggle} title="Close"
+            style={{ background: "transparent", border: 0, color: N.textS, fontSize: 15, cursor: "pointer", padding: 2, fontFamily: "inherit" }}>
+            <Ico name="close" size={13} />
+          </button>
         </div>
-      )}
-
-      {open === "feedback" && (
-        <div style={panelBase}>
-          <div style={{ padding: "10px 14px", borderBottom: "1px solid " + N.border }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: N.text }}>Provide feedback on the analysis</div>
-            <div style={{ fontSize: 9, color: N.textT, marginTop: 2 }}>Push back in plain language. Settled feedback becomes a rule that steers every future analysis.</div>
-          </div>
-          {rules.length > 0 && (
-            <div style={{ padding: "8px 14px", borderBottom: "1px solid " + N.border, maxHeight: 120, overflowY: "auto" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
-                <span style={{ fontSize: 9, fontWeight: 700, color: N.textT }}>Active rules ({rules.length})</span>
-                <button onClick={function () { try { navigator.clipboard.writeText(rules.map(function (r) { return "- " + r; }).join("\n")); } catch (e) { /* no-op */ } }}
-                  title="Copy all rules \u2014 paste them into api/ai.js in GitHub to make them permanent defaults"
-                  style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 8.5, padding: "1px 7px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>Copy all (for GitHub)</button>
-              </div>
-              {rules.map(function (r, i) {
-                return (
-                  <div key={i} style={{ display: "flex", gap: 8, alignItems: "baseline", fontSize: 10, color: N.textS, padding: "2px 0" }}>
-                    <span style={{ flex: 1 }}>{r}</span>
-                    <button onClick={function () { removeRule(i); }} title="Remove rule"
-                      style={{ background: "transparent", border: "none", color: N.textT, fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>{"\u00D7"}</button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          <div style={{ flex: 1, overflowY: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 8, minHeight: 140 }}>
-            {fbMsgs.length === 0 && (
-              <div style={{ fontSize: 10.5, color: N.textT, lineHeight: 1.5 }}>
-                Example: {"\u201C"}When both sizing directions are low, stop suggesting chart changes at all.{"\u201D"}
-              </div>
-            )}
-            {fbMsgs.map(function (m, i) {
-              return (
-                <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "88%", background: m.role === "user" ? "rgba(56,140,255,0.15)" : N.bg, border: "1px solid " + N.border, borderRadius: 10, padding: "7px 10px", fontSize: 11, color: N.text, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
-                  {m.content}
-                </div>
-              );
-            })}
-            {fbBusy && <div style={{ fontSize: 10, color: N.textT }}>Thinking{"\u2026"}</div>}
-            {proposedRule && (
-              <div style={{ background: "rgba(52,211,153,0.08)", border: "1px solid rgba(52,211,153,0.35)", borderRadius: 10, padding: "8px 10px" }}>
-                <div style={{ fontSize: 9, fontWeight: 700, color: N.green, marginBottom: 3 }}>Proposed rule</div>
-                <div style={{ fontSize: 11, color: N.text, lineHeight: 1.5, marginBottom: 6 }}>{proposedRule}</div>
-                <div style={{ display: "flex", gap: 6 }}>
-                  <button onClick={function () { addRule(proposedRule); }}
-                    style={{ background: "rgba(52,211,153,0.16)", border: "1px solid rgba(52,211,153,0.45)", color: N.green, fontSize: 10, fontWeight: 700, padding: "3px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit" }}>Add rule</button>
-                  <button onClick={function () { setProposedRule(null); }}
-                    style={{ background: "transparent", border: "1px solid " + N.border, color: N.textS, fontSize: 10, padding: "3px 12px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit" }}>Dismiss</button>
-                </div>
-              </div>
-            )}
-          </div>
-          <div style={{ padding: 10, borderTop: "1px solid " + N.border, display: "flex", gap: 8 }}>
-            <textarea value={fbInput} rows={2} placeholder="Your pushback on an analysis (Enter to send)"
-              onChange={function (e) { setFbInput(e.target.value); }}
-              onKeyDown={function (e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendFeedback(); } }}
-              style={{ flex: 1, background: N.bg, border: "1px solid " + N.border, borderRadius: 9, color: N.text, fontSize: 11, fontFamily: "inherit", padding: "7px 9px", outline: "none", resize: "none" }} />
-            <button onClick={sendFeedback} disabled={fbBusy} style={{ background: "rgba(255,255,255,0.1)", border: "1px solid " + N.border, color: N.text, fontSize: 11, fontWeight: 600, padding: "0 14px", borderRadius: 9, cursor: "pointer", fontFamily: "inherit" }}>Send</button>
-          </div>
-        </div>
-      )}
-
-      {open === "notes" && (
-        <div style={panelBase}>
-          <div style={{ padding: "10px 14px", borderBottom: "1px solid " + N.border, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: N.text }}>Notes for Ren{"\u00E9"}</div>
-            <div style={{ display: "flex", gap: 6 }}>
-              {props.chatContext && props.chatContext.product && (
-                <button onClick={function () {
-                  var line = "\u2022 " + props.chatContext.product + " (" + (props.storeName || "") + "): ";
-                  saveNotes(notes ? notes.replace(/\s*$/, "") + "\n" + line : line);
-                }} style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>+ product line</button>
-              )}
-              <button onClick={function () { try { navigator.clipboard.writeText(notes); } catch (e) { /* no-op */ } }}
-                style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>Copy</button>
-              <button onClick={function () { if (window.confirm("Clear all notes? This cannot be undone.")) saveNotes(""); }}
-                style={{ background: "transparent", border: "1px solid " + N.border, color: N.textT, fontSize: 9, padding: "2px 8px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>Clear</button>
-            </div>
-          </div>
-          <textarea value={notes} placeholder={"Notes for the weekly report to Ren\u00E9 \u2014 autosaved, survives store switches and refreshes.\n\n\u2022 Marivela bikini: sourcing different factory, waiting on WIIO\n\u2022 ..."}
-            onChange={function (e) { saveNotes(e.target.value); }}
-            style={{ flex: 1, minHeight: 260, background: N.bg, border: "none", color: N.text, fontSize: 11.5, lineHeight: 1.6, fontFamily: "inherit", padding: 12, outline: "none", resize: "none" }} />
-          <div style={{ padding: "6px 14px", borderTop: "1px solid " + N.border, fontSize: 9, color: N.textT }}>Autosaved {"\u00B7"} shared across both stores {"\u00B7"} never cleared automatically</div>
-        </div>
-      )}
-
-      {open === "reports" && (
-        <div style={panelBase}>
-          <div style={{ padding: "10px 14px", borderBottom: "1px solid " + N.border, fontSize: 11, fontWeight: 700, color: N.text }}>Reports {"\u00B7"} {props.storeName || ""}</div>
-          <div style={{ padding: 12, display: "flex", gap: 8, borderBottom: "1px solid " + N.border }}>
-            <button onClick={function () { makeReport("ceo"); }} style={fabStyle(false)}>CEO report</button>
-            <button onClick={function () { makeReport("risk"); }} style={fabStyle(false)}>High-risk new products</button>
-          </div>
-          <div style={{ flex: 1, overflowY: "auto", padding: 14, minHeight: 160 }}>
-            {rep.loading ? (
-              <div style={{ fontSize: 11, color: N.textS }}>Writing report{"\u2026"}</div>
-            ) : rep.error ? (
-              <div style={{ fontSize: 10.5, color: N.textS }}>{rep.error}</div>
-            ) : rep.text ? (
-              <div style={{ fontSize: 11.5, color: N.text, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{rep.text}</div>
-            ) : (
-              <div style={{ fontSize: 10.5, color: N.textT, lineHeight: 1.6 }}>
-                CEO report: the most important actions, go / no-go calls to make, and products where complaints are rising fast.{"\n\n"}High-risk: products live only 1{"\u2013"}2 weeks that already get sizing complaints.
-              </div>
-            )}
-          </div>
-          {rep.text && (
-            <div style={{ padding: 10, borderTop: "1px solid " + N.border }}>
-              <button onClick={function () { try { navigator.clipboard.writeText(rep.text); } catch (e) { /* no-op */ } }} style={fabStyle(false)}>Copy</button>
+        <div ref={listRef} style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8, padding: "4px 2px" }}>
+          {msgs.length === 0 && !busy && (
+            <div style={{ fontSize: 10.5, color: N.textT, lineHeight: 1.7, padding: "6px 2px" }}>
+              {product
+                ? "Ask about this product. Paste a size chart to adjust it, or ask for an image-edit prompt."
+                : "Open a product (click its title) to chat about it, or ask a general question about this store."}
             </div>
           )}
+          {msgs.map(function (m, i) {
+            var me = m.role === "user";
+            return (
+              <div key={i} style={{
+                alignSelf: me ? "flex-end" : "flex-start", maxWidth: "88%",
+                background: me ? "rgba(76,141,246,0.18)" : "#1E242B",
+                border: "1px solid " + (me ? "rgba(76,141,246,0.35)" : N.border),
+                borderRadius: 10, padding: "8px 11px", fontSize: 11.5, lineHeight: 1.55,
+                color: N.text, whiteSpace: "pre-wrap", overflowWrap: "break-word",
+              }}>{m.content}</div>
+            );
+          })}
+          {busy && (
+            <div style={{ alignSelf: "flex-start", fontSize: 11, color: N.textS, padding: "6px 2px" }}>Thinking{"…"}</div>
+          )}
         </div>
-      )}
+        <form onSubmit={submit} style={{ display: "flex", gap: 6, marginTop: 8 }}>
+          <input value={text} onChange={function (e) { setText(e.target.value); }} placeholder={"Ask about this product…"}
+            style={{ flex: 1, minWidth: 0, border: "1px solid rgba(210,218,230,0.15)", borderRadius: 8, background: "#1E242B", color: "rgba(236,238,242,0.9)", padding: "8px 10px", fontSize: 12, outline: "none", fontFamily: "inherit" }} />
+          <button type="submit" disabled={busy}
+            style={{ background: "rgba(76,141,246,0.14)", color: "#8FB8F5", border: "1px solid rgba(76,141,246,0.35)", borderRadius: 8, padding: "6px 12px", fontSize: 11, fontWeight: 700, cursor: busy ? "default" : "pointer", fontFamily: "inherit", opacity: busy ? 0.6 : 1 }}>
+            Send
+          </button>
+        </form>
+      </div>
     </>
   );
 }
@@ -1777,6 +2014,25 @@ export default function ComplaintDashboard() {
   // Optimistic writes (appear instantly, survive until CSV reload confirms them)
   var stLA = useState([]); var localActions = stLA[0]; var setLocalActions = stLA[1];
   var stLS = useState({}); var localStopped = stLS[0]; var setLocalStopped = stLS[1];
+  // Sticky right-edge panels (notepad + AI chat) — the focus card slides left while one is open.
+  var stNoteO = useState(false); var noteOpen = stNoteO[0]; var setNoteOpen = stNoteO[1];
+  var stChatO = useState(false); var chatOpen = stChatO[0]; var setChatOpen = stChatO[1];
+  var navRef = useRef(null); // ‹ › stepper, used by the global arrow-key handler
+  // Products fulfilled by CJ (the "Products switched to CJ" Notion DB) — normalized-title set.
+  var stCJ = useState(null); var cjSet = stCJ[0]; var setCjSet = stCJ[1];
+  useEffect(function () {
+    var alive = true;
+    fetch(CJ_FULFIL_PATH)
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        if (!alive || !j || !Array.isArray(j.products)) return;
+        var s = {};
+        j.products.forEach(function (t) { var k = fulfilKey(t); if (k) s[k] = true; });
+        setCjSet(s);
+      })
+      .catch(function () { /* local dev / endpoint not deployed — tag falls back to WIIO */ });
+    return function () { alive = false; };
+  }, []);
 
   function toggleChecked(product) {
     setCheckedState(function (prev) {
@@ -2017,6 +2273,17 @@ export default function ComplaintDashboard() {
     return map;
   }, [actions]);
 
+  // Products awaiting an EXTERNAL edit (action logged with status "Check in") — Amber gets a
+  // daily Slack follow-up (slack/checkin-remind.cjs). No time window: the flag stays until the
+  // sheet row's Status cell is changed away from "Check in" (or the log entry is removed).
+  var checkinPending = useMemo(function () {
+    var map = {};
+    actions.forEach(function (a) {
+      if ((a.status || "").toLowerCase() === "check in") map[a.key] = true;
+    });
+    return map;
+  }, [actions]);
+
   var productData = useMemo(function () {
     var cMap = {};
     complaints.forEach(function (c) {
@@ -2036,8 +2303,9 @@ export default function ComplaintDashboard() {
       var isStopped = !!stoppedAds[k];
       // New arrival = FIRST SALE ever within the last ~4 data weeks (firstWeek = earliest week with any orders)
       var isNewArrival = firstWeek != null && firstWeek >= latestDataWeek - 3;
-      var status = isStopped ? "Stopped"
+      var status = isStopped ? "Inactive" // "Stopped" retired — stopped products are simply Inactive
                  : (orders7d != null && orders7d < INACTIVE_SALES_7D) ? "Inactive" // < 5 sales / 14d = Inactive, ALWAYS, no matter what
+                 : checkinPending[k] ? "Check in"
                  : editedRecently[k] ? "Edited"
                  : isNewArrival ? "New arrival"
                  : "Active";
@@ -2053,7 +2321,7 @@ export default function ComplaintDashboard() {
         image: ordersByKey[k] ? ordersByKey[k].image : "",
       }, cMap[k] ? cMap[k].byType : {});
     });
-  }, [complaints, orderTotals, titleByKey, ordersByKey, latestDataWeek, stoppedAds, editedRecently]);
+  }, [complaints, orderTotals, titleByKey, ordersByKey, latestDataWeek, stoppedAds, editedRecently, checkinPending]);
 
   var filteredProductData = useMemo(function () {
     return productData.filter(function (p) {
@@ -2358,37 +2626,6 @@ export default function ComplaintDashboard() {
     });
     return out;
   }, [heatmapData, productData, allComplaints, actionsByProduct, ordersByKey, zones, latestDataWeek, ordersWR, contribData, selectedStore, runState.running]);
-  // Data payloads for the floating widgets
-  var reportData = useMemo(function () {
-    var recentActions = [];
-    actions.forEach(function (a) {
-      if (a.week != null && a.week >= currentWeekNum() - 2) {
-        var enriched = (actionsByProduct[a.key] || []).find(function (x) { return x.uuid === a.uuid || (x.week === a.week && x.action === a.action); });
-        recentActions.push({
-          product: titleByKey[a.key] || a.key, week: a.week, category: a.category, action: a.action,
-          beforePct: enriched ? enriched.beforePct : null, afterPct: enriched ? enriched.afterPct : null, deltaPP: enriched ? enriched.deltaPP : null,
-        });
-      }
-    });
-    var kills = [], risers = [], newRisk = [];
-    heatmapData.forEach(function (r) {
-      if (r.killSignal) kills.push({ product: r.product, pct: r.pct, tier: r.killSignal.tier, reasons: r.killSignal.reasons });
-      // rising: complaints in last 2 weeks vs the 4 weeks before
-      var recent = 0, prior = 0;
-      allComplaints.forEach(function (c) {
-        if (c.key !== r.key || c.detailOnly || c.week == null) return;
-        if (c.week >= weekRange[1] - 1) recent++;
-        else if (c.week >= weekRange[1] - 5) prior++;
-      });
-      if (recent >= 3 && recent > prior) risers.push({ product: r.product, last2w: recent, prior4w: prior, totalPct: r.pct });
-      var sizing = (r.too_small_count || 0) + (r.too_large_count || 0);
-      if (r.firstWeek != null && r.firstWeek >= latestDataWeek - 1 && sizing >= 2) {
-        newRisk.push({ product: r.product, liveWeeks: latestDataWeek - r.firstWeek + 1, orders: r.orders, tooSmall: r.too_small_count || 0, tooLarge: r.too_large_count || 0, totalPct: r.pct });
-      }
-    });
-    return { store: STORE_CSVS[selectedStore].name, week: currentWeekNum(), recentActions: recentActions.slice(0, 20), killSignals: kills.slice(0, 15), risingComplaints: risers.slice(0, 15), newProductsWithSizingRisk: newRisk.slice(0, 15) };
-  }, [actions, actionsByProduct, heatmapData, allComplaints, titleByKey, weekRange, latestDataWeek, selectedStore]);
-
   var chatContext = useMemo(function () {
     if (!focusedProduct) return { store: STORE_CSVS[selectedStore].name };
     var r = heatmapData.find(function (x) { return x.key === focusedProduct; }) || {};
@@ -2417,7 +2654,7 @@ export default function ComplaintDashboard() {
         expectedEffect: form.expectedEffect,
         notes: form.notes,
         week: form.week || currentWeekNum(),
-        status: "Active",
+        status: form.checkin ? "Check in" : "Active",
         date: todayISO(),
         uuid: u,
         pending: true,
@@ -2435,7 +2672,7 @@ export default function ComplaintDashboard() {
           expectedEffect: form.expectedEffect,
           notes: form.notes,
           week: form.week || currentWeekNum(),
-          status: "Active",
+          status: form.checkin ? "Check in" : "Active",
           date: todayISO(),
         });
         setLocalActions(function (prev) { return prev.map(function (a) { return a.uuid === u ? Object.assign({}, a, { pending: false }) : a; }); });
@@ -2496,11 +2733,24 @@ export default function ComplaintDashboard() {
     toastTimer.current = setTimeout(function () { setToast(null); }, ms || 2600);
   }
 
+  // Esc closes the chat/notepad panel first, then the focus view. ‹ › arrows step through
+  // products while focused (never while typing). No dependency array — closures stay fresh.
   useEffect(function () {
-    function onKey(e) { if (e.key === "Escape" && closeRef.current) closeRef.current(); }
+    function onKey(e) {
+      var typing = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target && e.target.tagName) || "");
+      if (e.key === "Escape") {
+        if (chatOpen) { setChatOpen(false); return; }
+        if (noteOpen) { setNoteOpen(false); return; }
+        if (closeRef.current) closeRef.current();
+        return;
+      }
+      if (typing || !focusedProduct) return;
+      if (e.key === "ArrowLeft" && navRef.current) navRef.current(-1);
+      if (e.key === "ArrowRight" && navRef.current) navRef.current(1);
+    }
     window.addEventListener("keydown", onKey);
     return function () { window.removeEventListener("keydown", onKey); };
-  }, []);
+  });
 
   if (loading) {
     return (
@@ -2545,6 +2795,17 @@ export default function ComplaintDashboard() {
     setTimeout(function () { setFocusedProduct(null); setClosing(false); }, 320);
   }
   closeRef.current = closeFocus;
+  // ‹ › steps through the table as it is currently filtered + sorted.
+  var focusIndex = focusedProduct ? heatmapData.findIndex(function (r) { return r.key === focusedProduct; }) : -1;
+  function navFocus(delta) {
+    var next = heatmapData[focusIndex + delta];
+    if (next) setFocusedProduct(next.key);
+  }
+  navRef.current = navFocus;
+  var hasPrevProduct = focusIndex > 0;
+  var hasNextProduct = focusIndex >= 0 && focusIndex < heatmapData.length - 1;
+  // How far the focus card slides left while a sticky panel is open (half the panel width).
+  var panelShift = chatOpen ? 190 : (noteOpen ? 160 : 0);
 
   async function runAllRecommendations() {
     if (runState.running) return;
@@ -2638,8 +2899,8 @@ export default function ComplaintDashboard() {
     { key: "active", label: "Active", icon: "bolt" },
     { key: "new arrival", label: "New", icon: "sparkle" },
     { key: "edited", label: "Edited", icon: "check" },
+    { key: "check in", label: "Check in", icon: "refresh" },
     { key: "inactive", label: "Idle", icon: "pause" },
-    { key: "stopped", label: "Stopped", icon: "alert" },
     { key: "all", label: "All", icon: "grid" },
   ];
 
@@ -3001,7 +3262,7 @@ export default function ComplaintDashboard() {
           style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(4,6,12,0.86)", backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)", zIndex: 30, opacity: closing ? 0 : 1, transition: "opacity 0.3s ease" }} />
       )}
       {focusedProduct && shownRow && (
-        <div style={{ position: "fixed", top: "50%", left: "50%", transform: closing ? "translate(-50%, -46%)" : "translate(-50%, -50%)", width: "min(1100px, 95vw)", maxHeight: "90vh", overflowY: "auto", zIndex: 40, opacity: closing ? 0 : 1, transition: "opacity 0.3s ease, transform 0.3s ease" }}>
+        <div style={{ position: "fixed", top: "50%", left: panelShift ? "calc(50% - " + panelShift + "px)" : "50%", transform: closing ? "translate(-50%, -46%)" : "translate(-50%, -50%)", width: "min(1100px, 95vw)", maxHeight: "90vh", overflowY: "auto", zIndex: 40, opacity: closing ? 0 : 1, transition: "opacity 0.3s ease, transform 0.3s ease, left 0.2s ease" }}>
           <FocusPanel
             row={shownRow}
             image={shownRow.image}
@@ -3019,11 +3280,29 @@ export default function ComplaintDashboard() {
             onStopAds={makeStopAds(shownRow)}
             onUndoAction={undoAction}
             onUndoStop={makeUndoStop(shownRow)}
+            fulfiller={cjSet && cjSet[fulfilKey(shownRow.product)] ? "CJ" : "WIIO"}
+            weekOrders={(ordersByKey[shownRow.key] || {}).weekOrders || {}}
+            latestWeek={latestDataWeek}
           />
         </div>
       )}
+      {/* ‹ › — step through the filtered list without going back to it */}
+      {focusedProduct && shownRow && !closing && hasPrevProduct && (
+        <button onClick={function () { navFocus(-1); }} title="Previous product (←)"
+          style={{ position: "fixed", left: 10, top: "calc(50% - 21px)", zIndex: 45, width: 42, height: 42, borderRadius: "50%", background: "rgba(255,255,255,0.06)", border: "1px solid " + N.borderS, color: N.text, fontSize: 19, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
+          {"‹"}
+        </button>
+      )}
+      {focusedProduct && shownRow && !closing && hasNextProduct && (
+        <button onClick={function () { navFocus(1); }} title="Next product (→)"
+          style={{ position: "fixed", right: chatOpen ? 390 : (noteOpen ? 330 : 10), top: "calc(50% - 21px)", zIndex: 45, width: 42, height: 42, borderRadius: "50%", background: "rgba(255,255,255,0.06)", border: "1px solid " + N.borderS, color: N.text, fontSize: 19, fontWeight: 800, cursor: "pointer", fontFamily: "inherit", transition: "right .2s" }}>
+          {"›"}
+        </button>
+      )}
 
-      <FloatingWidgets storeName={STORE_CSVS[selectedStore].name} chatContext={chatContext} reportData={reportData} />
+      <StickyPanels storeName={STORE_CSVS[selectedStore].name} chatContext={chatContext}
+        noteOpen={noteOpen} onToggleNote={function () { setNoteOpen(!noteOpen); }}
+        chatOpen={chatOpen} onToggleChat={function () { setChatOpen(!chatOpen); }} />
       </main>
     </div>
   );

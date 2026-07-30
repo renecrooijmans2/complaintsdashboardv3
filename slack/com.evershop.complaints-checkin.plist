@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.evershop.complaints-checkin</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/node</string>
+    <string>/Users/renecrooijmans/Documents/AI workflow automations/Agentic/Complaints dashboard final/slack/checkin-remind.cjs</string>
+    <string>--send</string>
+    <string>--quiet-if-empty</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>9</integer>
+    <key>Minute</key>
+    <integer>30</integer>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/tmp/complaints-checkin.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/complaints-checkin.err</string>
+</dict>
+</plist>
