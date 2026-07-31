@@ -1242,16 +1242,8 @@ function FlagThread(props) {
   var whoColor = function (w) { return w === "Amber" ? "#FBBF24" : N.blueText; };
   return (
     <div style={{ background: "rgba(251,191,36,0.06)", border: "1px solid rgba(251,191,36,0.45)", borderRadius: 12, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-        <span style={{ fontSize: 11, fontWeight: 800, color: "#FBBF24" }}>🚩 Flag notes</span>
-        <span style={{ fontSize: 9, color: N.textT }}>questions & follow-ups {"·"} Amber {"↔"} Ren{"é"}</span>
-      </div>
+      <div style={{ fontSize: 11, fontWeight: 800, color: "#FBBF24" }}>Flag notes</div>
       <div ref={listRef} style={{ maxHeight: 180, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
-        {msgs.length === 0 && (
-          <div style={{ fontSize: 10.5, color: N.textS, lineHeight: 1.5 }}>
-            No notes yet {"—"} write what you need help with and Ren{"é"} will reply here.
-          </div>
-        )}
         {msgs.map(function (m, i) {
           return (
             <div key={i} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid " + N.border, borderRadius: 9, padding: "6px 9px" }}>
@@ -1498,7 +1490,7 @@ function FocusPanel(props) {
         {props.flagInfo ? (
           <button onClick={props.onUnflag} title="Flagged — click to remove the flag (and its notes)"
             style={{ fontSize: 9, fontWeight: 700, color: "#FBBF24", background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.45)", padding: "2px 8px", borderRadius: 10, letterSpacing: "0.05em", textTransform: "uppercase", alignSelf: "center", cursor: "pointer", fontFamily: "inherit" }}>
-            🚩 Flagged
+            Flagged
           </button>
         ) : (
           <button onClick={props.onFlag} title="Flag this product — opens a note thread for Amber ↔ René"
