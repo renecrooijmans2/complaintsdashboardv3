@@ -1241,38 +1241,48 @@ function FlagThread(props) {
   }
   var whoColor = function (w) { return w === "Amber" ? "#FBBF24" : N.blueText; };
   return (
-    <div style={{ background: "rgba(251,191,36,0.06)", border: "1px solid rgba(251,191,36,0.45)", borderRadius: 12, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
-      <div style={{ fontSize: 11, fontWeight: 800, color: "#FBBF24" }}>Flag notes</div>
-      <div ref={listRef} style={{ maxHeight: 180, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
-        {msgs.map(function (m, i) {
-          return (
-            <div key={i} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid " + N.border, borderRadius: 9, padding: "6px 9px" }}>
-              <div style={{ display: "flex", gap: 8, alignItems: "baseline", marginBottom: 2 }}>
-                <span style={{ fontSize: 10, fontWeight: 800, color: whoColor(m.who) }}>{m.who}</span>
-                <span style={{ fontSize: 8.5, color: N.textT }}>{String(m.ts || "").slice(0, 16).replace("T", " ")}</span>
-              </div>
-              <div style={{ fontSize: 11, color: N.text, lineHeight: 1.5, whiteSpace: "pre-wrap", overflowWrap: "break-word" }}>{m.text}</div>
-            </div>
-          );
-        })}
-      </div>
-      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+    <div style={{ background: "linear-gradient(180deg, rgba(251,191,36,0.07), rgba(251,191,36,0.02)), " + N.bgC, border: "1px solid rgba(251,191,36,0.5)", borderRadius: 14, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 9 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+        <Ico name="flag" size={13} color="#FBBF24" weight={2} />
+        <span style={{ fontSize: 10.5, fontWeight: 800, color: "#FBBF24", letterSpacing: "0.07em", textTransform: "uppercase" }}>Flagged</span>
+        <span style={{ flex: 1 }} />
         {["Amber", "René"].map(function (w) {
           var on = who === w;
           return (
             <button key={w} onClick={function () { pick(w); }} title={"Write as " + w}
-              style={{ background: on ? "rgba(251,191,36,0.14)" : "transparent", border: "1px solid " + (on ? "rgba(251,191,36,0.5)" : N.border), color: on ? "#FBBF24" : N.textT, fontSize: 9, fontWeight: 700, padding: "3px 9px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>
+              style={{ background: on ? "rgba(251,191,36,0.12)" : "transparent", border: "1px solid " + (on ? "rgba(251,191,36,0.45)" : N.border), color: on ? "#FBBF24" : N.textT, fontSize: 9, fontWeight: 700, padding: "2px 9px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>
               {w}
             </button>
           );
         })}
-        <input value={txt} placeholder="Type a note (Enter to send)"
+      </div>
+      {msgs.length === 0 ? (
+        <div style={{ fontSize: 11.5, color: N.textS, lineHeight: 1.5 }}>
+          Leave a note explaining what you need {"—"} a question, something unclear, anything blocking this product.
+        </div>
+      ) : (
+        <div ref={listRef} style={{ maxHeight: 200, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+          {msgs.map(function (m, i) {
+            return (
+              <div key={i} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid " + N.border, borderRadius: 9, padding: "6px 9px" }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "baseline", marginBottom: 2 }}>
+                  <span style={{ fontSize: 10, fontWeight: 800, color: whoColor(m.who) }}>{m.who}</span>
+                  <span style={{ fontSize: 8.5, color: N.textT }}>{String(m.ts || "").slice(0, 16).replace("T", " ")}</span>
+                </div>
+                <div style={{ fontSize: 11, color: N.text, lineHeight: 1.5, whiteSpace: "pre-wrap", overflowWrap: "break-word" }}>{m.text}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+        <textarea value={txt} rows={2} placeholder="What do you need help with?"
           onChange={function (e) { setTxt(e.target.value); }}
-          onKeyDown={function (e) { if (e.key === "Enter") { e.preventDefault(); send(); } }}
-          style={{ flex: 1, minWidth: 0, background: N.bg, border: "1px solid " + N.border, borderRadius: 9, color: N.text, fontSize: 11, fontFamily: "inherit", padding: "6px 9px", outline: "none" }} />
+          onKeyDown={function (e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+          style={{ flex: 1, minWidth: 0, background: N.bg, border: "1px solid " + N.borderS, borderRadius: 10, color: N.text, fontSize: 12, lineHeight: 1.5, fontFamily: "inherit", padding: "10px 12px", outline: "none", resize: "vertical", minHeight: 56 }} />
         <button onClick={send} disabled={busy}
-          style={{ background: "rgba(251,191,36,0.14)", border: "1px solid rgba(251,191,36,0.5)", color: "#FBBF24", fontSize: 10, fontWeight: 700, padding: "6px 12px", borderRadius: 9, cursor: busy ? "default" : "pointer", fontFamily: "inherit", opacity: busy ? 0.6 : 1 }}>
-          {busy ? "…" : "Send"}
+          style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.55)", color: "#FBBF24", fontSize: 12, fontWeight: 700, padding: "9px 20px", borderRadius: 99, cursor: busy ? "default" : "pointer", fontFamily: "inherit", opacity: busy ? 0.6 : 1, flexShrink: 0 }}>
+          Send
         </button>
       </div>
     </div>
@@ -1489,13 +1499,13 @@ function FocusPanel(props) {
         )}
         {props.flagInfo ? (
           <button onClick={props.onUnflag} title="Flagged — click to remove the flag (and its notes)"
-            style={{ fontSize: 9, fontWeight: 700, color: "#FBBF24", background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.45)", padding: "2px 8px", borderRadius: 10, letterSpacing: "0.05em", textTransform: "uppercase", alignSelf: "center", cursor: "pointer", fontFamily: "inherit" }}>
-            Flagged
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 9.5, fontWeight: 800, color: "#FBBF24", background: "rgba(251,191,36,0.07)", border: "1px solid rgba(251,191,36,0.45)", padding: "5px 11px", borderRadius: 10, letterSpacing: "0.07em", textTransform: "uppercase", alignSelf: "center", cursor: "pointer", fontFamily: "inherit" }}>
+            <Ico name="flag" size={12} weight={2} /> Flagged
           </button>
         ) : (
           <button onClick={props.onFlag} title="Flag this product — opens a note thread for Amber ↔ René"
-            style={{ fontSize: 9, fontWeight: 700, color: N.textS, background: "rgba(255,255,255,0.06)", border: "1px solid " + N.border, padding: "2px 8px", borderRadius: 10, letterSpacing: "0.05em", textTransform: "uppercase", alignSelf: "center", cursor: "pointer", fontFamily: "inherit" }}>
-            Flag
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 9.5, fontWeight: 800, color: N.textS, background: "rgba(255,255,255,0.05)", border: "1px solid " + N.borderS, padding: "5px 11px", borderRadius: 10, letterSpacing: "0.07em", textTransform: "uppercase", alignSelf: "center", cursor: "pointer", fontFamily: "inherit" }}>
+            <Ico name="flag" size={12} weight={2} /> Flag
           </button>
         )}
         <span style={{ flex: 1 }} />
@@ -1514,6 +1524,7 @@ function FocusPanel(props) {
         </div>,
         document.body
       )}
+      {props.flagInfo && <FlagThread info={props.flagInfo} onSend={props.onFlagMessage} />}
       {/* Top row: photo + key stats + AI analysis */}
       <div style={{ display: "grid", gridTemplateColumns: (imgSrc || (qc && qc.qcImages && qc.qcImages.length > 0)) ? "175px 1fr 1fr" : "1fr 1fr", gap: 16, alignItems: "start" }}>
         {(imgSrc || (qc && qc.qcImages && qc.qcImages.length > 0)) && (
@@ -1680,7 +1691,6 @@ function FocusPanel(props) {
           </div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
-          {props.flagInfo && <FlagThread info={props.flagInfo} onSend={props.onFlagMessage} />}
           <AIPanel aiData={props.aiData} rowKey={row.key} storeName={props.storeName}
             productUrl={prod && prod.url ? prod.url : ""}
             ready={qcDone && prodDone}
