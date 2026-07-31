@@ -45,6 +45,7 @@ var CJ_FULFIL_PATH = "/api/cj-fulfilment";   // Notion "Products switched to CJ"
 var SLACK_SEARCH_PATH = "/api/slack-search"; // Slack search.messages → "All Slack messages" tab
 var QC_PHOTO_PATH = "/api/qc-photo";         // replace/delete factory QC photos in Notion
 var NOTE_API_PATH = "/api/note";             // notepad "send to Slack" relay
+var FLAGS_API_PATH = "/api/flags";           // Flagged products + Amber↔René note threads (Notion)
 
 // Re:amaze deep links for the complaints table. A full https:// URL in the
 // "Ticket Slug" column is used as-is; a bare conversation slug gets this prefix.
@@ -219,6 +220,7 @@ function Ico(props) {
     refresh: "M20 11a8 8 0 1 0-1.5 5M20 5v6h-6",
     note: "M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z",
     close: "M6 6l12 12M18 6 6 18",
+    flag: "M5 21V4M5 4h12l-2.5 4L17 12H5",
     settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.2A1.6 1.6 0 0 0 7.9 19.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 4 15H3.9a2 2 0 1 1 0-4H4a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 11 4V3.9a2 2 0 1 1 4 0V4a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.6 1.6 0 0 0 20 11h.1a2 2 0 1 1 0 4H20z",
   };
   return (
@@ -1208,6 +1210,83 @@ function OrderGraph(props) {
   );
 }
 
+/* ── FLAG THREAD — prominent note exchange on a flagged product (Amber ↔ René).
+   Shown above the AI analysis while the product is flagged; backed by /api/flags. ── */
+function FlagThread(props) {
+  var stWho = useState(function () {
+    try { return window.localStorage.getItem("flag-author") || "Amber"; } catch (e) { return "Amber"; }
+  });
+  var who = stWho[0]; var setWho = stWho[1];
+  var stTxt = useState(""); var txt = stTxt[0]; var setTxt = stTxt[1];
+  var stBusy = useState(false); var busy = stBusy[0]; var setBusy = stBusy[1];
+  var listRef = useRef(null);
+  var msgs = (props.info && props.info.messages) || [];
+
+  useEffect(function () {
+    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+  }, [msgs.length]);
+
+  function pick(w) {
+    setWho(w);
+    try { window.localStorage.setItem("flag-author", w); } catch (e) { /* no-op */ }
+  }
+  function send() {
+    var t = txt.trim();
+    if (!t || busy) return;
+    setBusy(true);
+    Promise.resolve(props.onSend(who, t))
+      .then(function () { setTxt(""); })
+      .catch(function (e) { alert("Note failed: " + String(e.message || e)); })
+      .finally(function () { setBusy(false); });
+  }
+  var whoColor = function (w) { return w === "Amber" ? "#FBBF24" : N.blueText; };
+  return (
+    <div style={{ background: "rgba(251,191,36,0.06)", border: "1px solid rgba(251,191,36,0.45)", borderRadius: 12, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+        <span style={{ fontSize: 11, fontWeight: 800, color: "#FBBF24" }}>🚩 Flag notes</span>
+        <span style={{ fontSize: 9, color: N.textT }}>questions & follow-ups {"·"} Amber {"↔"} Ren{"é"}</span>
+      </div>
+      <div ref={listRef} style={{ maxHeight: 180, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+        {msgs.length === 0 && (
+          <div style={{ fontSize: 10.5, color: N.textS, lineHeight: 1.5 }}>
+            No notes yet {"—"} write what you need help with and Ren{"é"} will reply here.
+          </div>
+        )}
+        {msgs.map(function (m, i) {
+          return (
+            <div key={i} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid " + N.border, borderRadius: 9, padding: "6px 9px" }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "baseline", marginBottom: 2 }}>
+                <span style={{ fontSize: 10, fontWeight: 800, color: whoColor(m.who) }}>{m.who}</span>
+                <span style={{ fontSize: 8.5, color: N.textT }}>{String(m.ts || "").slice(0, 16).replace("T", " ")}</span>
+              </div>
+              <div style={{ fontSize: 11, color: N.text, lineHeight: 1.5, whiteSpace: "pre-wrap", overflowWrap: "break-word" }}>{m.text}</div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        {["Amber", "René"].map(function (w) {
+          var on = who === w;
+          return (
+            <button key={w} onClick={function () { pick(w); }} title={"Write as " + w}
+              style={{ background: on ? "rgba(251,191,36,0.14)" : "transparent", border: "1px solid " + (on ? "rgba(251,191,36,0.5)" : N.border), color: on ? "#FBBF24" : N.textT, fontSize: 9, fontWeight: 700, padding: "3px 9px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>
+              {w}
+            </button>
+          );
+        })}
+        <input value={txt} placeholder="Type a note (Enter to send)"
+          onChange={function (e) { setTxt(e.target.value); }}
+          onKeyDown={function (e) { if (e.key === "Enter") { e.preventDefault(); send(); } }}
+          style={{ flex: 1, minWidth: 0, background: N.bg, border: "1px solid " + N.border, borderRadius: 9, color: N.text, fontSize: 11, fontFamily: "inherit", padding: "6px 9px", outline: "none" }} />
+        <button onClick={send} disabled={busy}
+          style={{ background: "rgba(251,191,36,0.14)", border: "1px solid rgba(251,191,36,0.5)", color: "#FBBF24", fontSize: 10, fontWeight: 700, padding: "6px 12px", borderRadius: 9, cursor: busy ? "default" : "pointer", fontFamily: "inherit", opacity: busy ? 0.6 : 1 }}>
+          {busy ? "…" : "Send"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function FocusPanel(props) {
   var row = props.row;
   var stA = useState(false); var showForm = stA[0]; var setShowForm = stA[1];
@@ -1416,6 +1495,17 @@ function FocusPanel(props) {
             {props.fulfiller}
           </span>
         )}
+        {props.flagInfo ? (
+          <button onClick={props.onUnflag} title="Flagged — click to remove the flag (and its notes)"
+            style={{ fontSize: 9, fontWeight: 700, color: "#FBBF24", background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.45)", padding: "2px 8px", borderRadius: 10, letterSpacing: "0.05em", textTransform: "uppercase", alignSelf: "center", cursor: "pointer", fontFamily: "inherit" }}>
+            🚩 Flagged
+          </button>
+        ) : (
+          <button onClick={props.onFlag} title="Flag this product — opens a note thread for Amber ↔ René"
+            style={{ fontSize: 9, fontWeight: 700, color: N.textS, background: "rgba(255,255,255,0.06)", border: "1px solid " + N.border, padding: "2px 8px", borderRadius: 10, letterSpacing: "0.05em", textTransform: "uppercase", alignSelf: "center", cursor: "pointer", fontFamily: "inherit" }}>
+            Flag
+          </button>
+        )}
         <span style={{ flex: 1 }} />
         {qc && qc.notionUrl && <a href={qc.notionUrl} target="_blank" rel="noreferrer" style={{ fontSize: 10, fontWeight: 500, color: N.textS, textDecoration: "none" }}>Notion {"\u2197"}</a>}
         {props.onClose && (
@@ -1597,7 +1687,8 @@ function FocusPanel(props) {
             )}
           </div>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
+          {props.flagInfo && <FlagThread info={props.flagInfo} onSend={props.onFlagMessage} />}
           <AIPanel aiData={props.aiData} rowKey={row.key} storeName={props.storeName}
             productUrl={prod && prod.url ? prod.url : ""}
             ready={qcDone && prodDone}
@@ -2034,6 +2125,60 @@ export default function ComplaintDashboard() {
     return function () { alive = false; };
   }, []);
 
+  // Flagged products + note threads (shared with Amber via the Notion flags DB).
+  var stFlags = useState({}); var flagsByKey = stFlags[0]; var setFlagsByKey = stFlags[1];
+  useEffect(function () {
+    var alive = true;
+    setFlagsByKey({});
+    fetch(FLAGS_API_PATH + "?store=" + encodeURIComponent(STORE_CSVS[selectedStore].name))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) { if (alive && j && j.flags) setFlagsByKey(j.flags); })
+      .catch(function () { /* local dev — flags stay empty */ });
+    return function () { alive = false; };
+  }, [selectedStore]);
+
+  function flagsPost(payload) {
+    return fetch(FLAGS_API_PATH, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(Object.assign({ store: STORE_CSVS[selectedStore].name }, payload)),
+    }).then(function (r) {
+      return r.json().then(function (j) { if (!r.ok || (j && j.error)) throw new Error((j && j.error) || "flags API failed"); return j; });
+    });
+  }
+  function makeFlag(row) {
+    return function () {
+      setFlagsByKey(function (prev) { var n = Object.assign({}, prev); n[row.key] = { product: row.product, messages: [] }; return n; });
+      flagsPost({ action: "flag", key: row.key, product: row.product }).catch(function (e) {
+        setFlagsByKey(function (prev) { var n = Object.assign({}, prev); delete n[row.key]; return n; });
+        alert("Flag failed: " + String(e.message || e));
+      });
+    };
+  }
+  function makeUnflag(row) {
+    return function () {
+      var info = flagsByKey[row.key];
+      var hasNotes = info && info.messages && info.messages.length > 0;
+      if (!window.confirm(hasNotes ? "Remove the flag AND its notes for this product?" : "Remove the flag?")) return;
+      setFlagsByKey(function (prev) { var n = Object.assign({}, prev); delete n[row.key]; return n; });
+      flagsPost({ action: "unflag", key: row.key }).catch(function (e) {
+        if (info) setFlagsByKey(function (prev) { var n = Object.assign({}, prev); n[row.key] = info; return n; });
+        alert("Unflag failed: " + String(e.message || e));
+      });
+    };
+  }
+  function makeFlagMessage(row) {
+    return function (who, text) {
+      return flagsPost({ action: "message", key: row.key, product: row.product, who: who, text: text }).then(function (j) {
+        setFlagsByKey(function (prev) {
+          var n = Object.assign({}, prev);
+          var cur = n[row.key] || { product: row.product, messages: [] };
+          n[row.key] = { product: cur.product, messages: cur.messages.concat([{ who: who, text: text, ts: j.ts || new Date().toISOString() }]) };
+          return n;
+        });
+      });
+    };
+  }
+
   function toggleChecked(product) {
     setCheckedState(function (prev) {
       var nextProducts = Object.assign({}, prev.products);
@@ -2329,11 +2474,12 @@ export default function ComplaintDashboard() {
       for (var i = 0; i < EXCLUDE_TITLE_PATTERNS.length; i++) {
         if (EXCLUDE_TITLE_PATTERNS[i].test(t)) return false;
       }
+      if (statusFilter === "flagged") return !!flagsByKey[p.key]; // flags cut across statuses — even low-sales rows show
       if (p.orders < minSales && p.status !== "New arrival") return false; // fresh products' sales fall outside the lagged window — never hide them
       if (statusFilter !== "all" && p.status.toLowerCase() !== statusFilter) return false;
       return true;
     });
-  }, [productData, minSales, statusFilter]);
+  }, [productData, minSales, statusFilter, flagsByKey]);
 
   var heatmapData = useMemo(function () {
     var rows = filteredProductData.map(function (p) {
@@ -2928,6 +3074,26 @@ export default function ComplaintDashboard() {
           );
         })}
 
+        {/* Flagged sits outside the status flow — any product can carry a flag on top of its status */}
+        <div style={{ width: 44, height: 1, background: N.borderS, margin: "5px 0", flexShrink: 0 }} />
+        {(function () {
+          var active = statusFilter === "flagged";
+          var count = Object.keys(flagsByKey).length;
+          return (
+            <button className="navItem" onClick={function () { setStatusFilter("flagged"); }} title={"Flagged products (Amber ↔ René)"}
+              style={{
+                width: 58, padding: "9px 0 7px", borderRadius: 14, cursor: "pointer", fontFamily: "inherit",
+                display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
+                background: active ? "rgba(251,191,36,0.10)" : "transparent",
+                border: "1px solid " + (active ? "rgba(251,191,36,0.35)" : "transparent"),
+                color: active ? "#FBBF24" : N.textT,
+              }}>
+              <Ico name="flag" size={17} weight={active ? 2 : 1.6} />
+              <span style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>Flagged{count > 0 ? " " + count : ""}</span>
+            </button>
+          );
+        })()}
+
         <div style={{ flex: 1 }} />
 
         {/* Review progress ring — the weekly job, always in view */}
@@ -3232,6 +3398,10 @@ export default function ComplaintDashboard() {
             fulfiller={cjSet && cjSet[fulfilKey(shownRow.product)] ? "CJ" : "WIIO"}
             weekOrders={(ordersByKey[shownRow.key] || {}).weekOrders || {}}
             latestWeek={latestDataWeek}
+            flagInfo={flagsByKey[shownRow.key] || null}
+            onFlag={makeFlag(shownRow)}
+            onUnflag={makeUnflag(shownRow)}
+            onFlagMessage={makeFlagMessage(shownRow)}
           />
         </div>
       )}
